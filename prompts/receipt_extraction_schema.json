@@ -1,0 +1,59 @@
+{
+  "type": "json_schema",
+  "name": "receipt_extraction",
+  "strict": true,
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "receipt_info": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "number": {"type": "string"},
+          "vendor": {"type": "string"},
+          "date": {"type": "string"},
+          "document_type": {"type": "string", "enum": ["invoice", "receipt", "invoice+receipt"]},
+          "original_file": {"type": "string"},
+          "reasoning": {"type": "string"}
+        },
+        "required": ["number", "vendor", "date", "document_type", "original_file", "reasoning"]
+      },
+      "amounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "total_excl_vat": {"type": "number"},
+          "vat_amount": {"type": "number"},
+          "total_incl_vat": {"type": "number"}
+        },
+        "required": ["total_excl_vat", "vat_amount", "total_incl_vat"]
+      },
+      "line_items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "description": {"type": "string"},
+            "amount_excl_vat": {"type": "number"},
+            "vat": {"type": "number"},
+            "total": {"type": "number"},
+            "deductible": {"type": "boolean"}
+          },
+          "required": ["description", "amount_excl_vat", "vat", "total", "deductible"]
+        }
+      },
+      "classification": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {"type": "string"},
+          "confidence": {"type": "number"}
+        },
+        "required": ["category", "confidence"]
+      }
+    },
+    "required": ["receipt_info", "amounts", "line_items", "classification"]
+  }
+}

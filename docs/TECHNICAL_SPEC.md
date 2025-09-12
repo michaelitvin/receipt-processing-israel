@@ -437,7 +437,7 @@ asyncio-throttle>=1.0.0
 
 ### Installation Process
 1. Clone repository
-2. Create Python virtual environment: `python3.13 -m venv .venv`
+2. Create Python virtual environment: `python3 -m venv .venv`
 3. Activate virtual environment: `source .venv/bin/activate` (macOS/Linux) or `.venv\Scripts\activate` (Windows)
 4. Install Python dependencies: `pip install -r requirements.txt`
 5. Install Poppler for PDF support

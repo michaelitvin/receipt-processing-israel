@@ -191,14 +191,8 @@ If a file consistently fails:
 ```bash
 # Optimal settings for most systems
 python receipt_extractor.py ./receipts \
-    --workers 10 \
-    --model claude-3-5-sonnet-20241022 \
+    --concurrent 5 \
     --output ./results
-
-# Then classify with auto-mode
-python receipt_classifier.py ./results/extracted_data_*.json \
-    --auto \
-    --workers 10
 ```
 
 ### For Better Accuracy
