@@ -1,37 +1,38 @@
-# Two-Part Receipt Processing System for Israeli Tax Reporting
+# Receipt Processing System for Israeli Tax Reporting
 
-A high-performance two-stage system for processing receipts using Claude AI, with parallel processing for faster batch operations.
+An intelligent two-stage receipt processing system using OpenAI's API for accurate data extraction and Excel-based review workflow.
 
 ## 🎯 System Overview
 
-The system is split into two independent scripts with **parallel processing capabilities**:
+The system provides a streamlined approach to processing receipts for Israeli tax compliance:
 
-1. **Part 1: Data Extraction** (`receipt_extractor.py`)
-   - Extracts raw data from receipt images/PDFs
-   - **Parallel processing** of multiple receipts simultaneously
-   - Creates an HTML review interface
-   - Outputs structured JSON data
+1. **Stage 1: Data Extraction** (`receipt_extractor.py`)
+   - Extracts structured data from receipt images and PDFs
+   - Uses OpenAI's Responses API with custom Jinja2 templates
+   - Parallel processing with configurable concurrency
+   - Generates Excel files with embedded images for review
+   - Creates failed receipt batches for manual entry
 
-2. **Part 2: Classification & Summarization** (`receipt_classifier.py`)
-   - Classifies expenses using AI
-   - **Batch classification** with parallel API calls
-   - Interactive user review and correction
-   - Generates tax-ready CSV reports
+2. **Stage 2: Consolidation** (`receipt_consolidator.py`)
+   - Processes reviewed Excel files
+   - Consolidates data into iCount-ready CSV format
+   - Maintains data integrity and validation
 
-## ⚡ Performance Features
+## ⚡ Key Features
 
-- **Parallel Processing**: Process multiple receipts simultaneously
-- **Configurable Workers**: Adjust parallel workers based on your needs
-- **5-10x Faster**: Compared to sequential processing for large batches
-- **Claude Sonnet 4**: Option to use faster, more cost-effective model
-- **Auto Mode**: Skip manual review for trusted batches
+- **Direct PDF Support**: Processes PDFs natively via OpenAI Responses API
+- **Template-Based Prompts**: Uses Jinja2 templates with full Israeli tax category context
+- **Comprehensive YAML Logging**: Detailed logs with timing, metadata, and full prompts
+- **Excel Review Workflow**: Visual review with embedded images and validation formulas
+- **Failed Receipt Handling**: Automatic empty batch files for processing failures
+- **Israeli Tax Compliance**: Built-in VAT rules, deductibility, and category mappings
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-1. **Python 3.8+** installed
-2. **Anthropic API Key** from [Anthropic Console](https://console.anthropic.com/)
+1. **Python 3.13+** installed
+2. **OpenAI API Key** from [OpenAI Platform](https://platform.openai.com/)
 3. **Poppler** for PDF support:
    ```bash
    # Ubuntu/Debian
@@ -39,395 +40,208 @@ The system is split into two independent scripts with **parallel processing capa
    
    # macOS
    brew install poppler
-   
-   # Windows - download from GitHub
    ```
 
 ### Installation
 
-```bash
-# Install Python dependencies
-pip install -r requirements.txt
+1. Clone the repository
+2. Create a virtual environment:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate
+   ```
 
-# Set your API key
-export ANTHROPIC_API_KEY='your-api-key-here'
-```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Copy `.env.example` to `.env` and configure your API key:
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` and add your OpenAI API key:
+   ```
+   OPENAI_API_KEY=your-openai-api-key-here
+   MAX_CONCURRENT_REQUESTS=5
+   RECEIPTS_PER_FILE=10
+   ```
 
 ### Usage
 
-#### Step 1: Extract Receipt Data
+#### Stage 1: Extract Receipt Data
 
 ```bash
 # Basic usage
 python receipt_extractor.py /path/to/receipts/folder
 
-# With parallel processing (default: 5 workers)
-python receipt_extractor.py /path/to/receipts/folder --workers 10
+# With custom concurrency and batch size
+python receipt_extractor.py /path/to/receipts/folder --concurrent 3 --receipts-per-file 5
 
-# Using Claude Sonnet 4 for faster processing
-python receipt_extractor.py /path/to/receipts/folder --model claude-3-5-sonnet-20241022
-
-# Full options
-python receipt_extractor.py /path/to/receipts/folder \
-    --output extracted_receipts \
-    --workers 10 \
-    --model claude-3-5-sonnet-20241022
+# With custom output directory
+python receipt_extractor.py /path/to/receipts/folder --output ./my_extractions
 ```
 
-This will create:
-- `extracted_data_[timestamp].json` - Raw extracted data
-- `receipt_review.html` - Visual review interface
-- `images/` folder - Receipt images for HTML display
+This creates:
+- Excel files with receipt data and embedded images
+- Failed receipt batches for manual entry
+- Comprehensive YAML logs of all API interactions
+- Processing summary with statistics
 
-**Open the HTML file in your browser to review the extraction quality!**
-
-#### Step 2: Classify and Generate Reports
+#### Stage 2: Consolidate to iCount Format
 
 ```bash
-# Basic usage with interactive review
-python receipt_classifier.py extracted_data_20241210_143022.json
+# Process reviewed Excel files
+python receipt_consolidator.py path/to/receipts_batch_001.xlsx path/to/receipts_batch_002.xlsx
 
-# Auto-mode for trusted batches (no manual review)
-python receipt_classifier.py extracted_data_20241210_143022.json --auto
-
-# With parallel classification (default: 5 workers)
-python receipt_classifier.py extracted_data_20241210_143022.json --workers 10
-
-# Full automation with maximum speed
-python receipt_classifier.py extracted_data_20241210_143022.json \
-    --auto \
-    --workers 10 \
-    --model claude-3-5-sonnet-20241022 \
-    --output classified_receipts
+# With custom output directory
+python receipt_consolidator.py *.xlsx --output ./consolidated_output
 ```
 
-This will:
-- Process each receipt with Claude for classification
-- Ask you questions when information is unclear
-- Allow you to review and modify classifications
-- Generate final reports
+This generates:
+- iCount-ready CSV import file
+- Consolidation summary with statistics
+- YAML processing logs
 
-## 📋 Part 1: Data Extraction Details
+## 📋 Technical Details
 
-### What Gets Extracted
+### OpenAI Integration
+- Uses **Responses API** with gpt-4o-mini model
+- Direct PDF and image processing support
+- Structured JSON output with strict schema validation
+- Full Israeli tax category context in prompts
 
-The extractor captures ALL visible information without interpretation:
+### Template System
+- **Jinja2 templates** for maintainable prompts
+- Full `ICOUNT_CATEGORIES.md` content included in prompts
+- VAT rates, deductibility rules, and sorting codes
+- Single source of truth for tax categorization
 
-- **Vendor Details**: Name, address, tax ID (ח.פ/עוסק מורשה)
-- **Transaction Info**: Date, time, receipt number
-- **Line Items**: Complete text, descriptions, quantities, prices
-- **Payment Details**: Method, card info, approval codes
-- **Totals**: Subtotal, tax lines, discounts, final total
-- **Raw Text**: All visible text lines for reference
+### Excel Generation
+- Embedded receipt images for visual review
+- Data validation dropdowns for categories and document types
+- Conditional formatting for VAT validation errors
+- Hebrew field names and interface
 
-### HTML Review Interface
+### Comprehensive Logging
+- **YAML format** with pipe notation for multiline strings
+- Complete request/response logging with timing
+- API metadata (model, parameters, response times)
+- Full rendered prompts with category context
+- Processing statistics and error details
 
-The generated HTML provides:
-- Side-by-side view of receipt image and extracted data
-- Organized data groups for easy review
-- Click to zoom on receipt images
-- Raw JSON toggle for technical review
-- Processing statistics
-
-### Example Output Structure
-
-```json
-{
-  "vendor_name": "סופר פארם",
-  "vendor_tax_id": "ח.פ 512345678",
-  "date": "10/12/2024",
-  "line_items": [
-    {
-      "description": "אקמול",
-      "quantity": "2",
-      "unit_price": "15.90",
-      "total_price": "31.80"
-    }
-  ],
-  "total_line": "סה״כ לתשלום: 31.80",
-  "_metadata": {
-    "file_name": "receipt_001.jpg",
-    "status": "extracted"
-  }
-}
-```
-
-## 🏷️ Part 2: Classification Details
-
-### Interactive Classification Process
-
-For each receipt, the system will:
-
-1. **AI Analysis**: Claude analyzes the receipt for tax categorization
-2. **Question Phase**: If information is missing/unclear, you'll be asked
-3. **Review Phase**: Shows the classification with options to modify
-4. **User Override**: You can adjust:
-   - Business percentage (0-100%)
-   - Expense category
-   - Expense type (business/personal/mixed)
-   - Add custom notes
-
-### Classification Categories
-
-- **Meals & Entertainment** (ארוחות ואירוח)
-- **Office Supplies** (ציוד משרדי)
-- **Travel & Transport** (נסיעות ותחבורה)
-- **Accommodation** (לינה)
-- **Professional Services** (שירותים מקצועיים)
-- **Equipment** (ציוד)
-- **Utilities** (חשבונות משרד)
-- **Insurance** (ביטוח)
-- **Marketing** (שיווק ופרסום)
-- **Education** (השתלמויות)
-- **Vehicle** (רכב)
-- **Communication** (תקשורת)
-- **Other** (אחר)
-
-### Interactive Review Example
+## 📊 Project Structure
 
 ```
-📋 CLARIFICATION NEEDED for: סופר פארם - 2024-12-10
-================================================================
-
-❓ Question 1: Was this purchase for office supplies or personal use?
-Your answer: office supplies for the clinic
-
-📍 Vendor: סופר פארם
-   Tax ID: ח.פ 512345678
-   Date: 2024-12-10
-   Amount: ILS 156.80
-
-🏷️ Classification:
-   Category: ציוד משרדי / Office Supplies
-   Type: 100% עסקי / Business
-   Business %: 100%
-   Confidence: high
-
-Review Options:
-1. Accept classification as-is
-2. Modify business percentage
-3. Change expense category
-4. Change expense type
-5. Add custom note
-6. Mark as invalid/skip
-
-Your choice (1-6, default=1): 1
+receipt_processing_system/
+├── receipt_extractor.py          # Stage 1: Extract receipt data
+├── receipt_consolidator.py       # Stage 2: Consolidate to iCount format
+├── shared/                       # Shared utilities
+│   ├── openai_client.py          # OpenAI API integration with Responses API
+│   ├── image_handler.py          # Image/PDF processing
+│   ├── excel_generator.py        # Excel file creation
+│   └── logger.py                 # YAML logging utilities
+├── prompts/                     # Jinja2 templates and schemas
+│   ├── receipt_extraction_prompt.j2  # OpenAI prompt template
+│   └── receipt_extraction_schema.json # JSON schema for structured output
+├── docs/                        # Documentation
+│   ├── ICOUNT_CATEGORIES.md     # Israeli tax categories
+│   ├── PRODUCT_REQUIREMENTS.md  # Product requirements
+│   ├── TECHNICAL_SPEC.md        # Technical specifications
+│   ├── TROUBLESHOOTING.md       # Troubleshooting guide
+│   └── iCount-Expenses-sample.xls       # Sample Excel output
+├── requirements.txt             # Python dependencies
+└── .env.example                 # Environment configuration template
 ```
 
-### Output Files
+## 📈 Israeli Tax Categories
 
-#### 1. Tax Report CSV (`tax_report_[timestamp].csv`)
+The system includes comprehensive Israeli tax categories with:
+- VAT percentages (0%, 18%, 66%)
+- Income tax deductibility rules
+- Sorting codes for accounting systems
+- Special handling for home office, vehicle, and mixed expenses
+- Notes on documentation requirements
 
-Ready for accounting software with columns:
-- Receipt number
-- File name
-- Date
-- Vendor name & tax ID
-- Category (English & Hebrew)
-- Expense type & business percentage
-- Amounts (total, VAT, deductible)
-- Notes (user & AI)
+Categories include:
+- Office & Administrative (משרדיות, חומרי ניקוי)
+- Technology & Communication (אינטרנט, סלולר, תוכנות)
+- Professional Services (רו״ח, עו״ד, יועצים)
+- Marketing & Sales (פרסום, שיווק)
+- Vehicle Expenses (דלק, ביטוח רכב)
+- Home Office (חשמל, מים, ארנונה)
+- And many more...
 
-#### 2. Classified Data JSON
+## 🔧 Configuration Options
 
-Complete classification data including:
-- Original extraction
-- AI classification
-- User modifications
-- Timestamps
-
-#### 3. Summary JSON
-
-Statistics including:
-- Total amounts by type
-- Breakdown by category
-- Monthly summaries
-- Processing metrics
-
-## 📊 Israeli Tax Considerations
-
-The system handles Israeli-specific requirements:
-
-- **VAT (מע״מ)**: Automatically extracts 17% VAT
-- **Tax Invoice**: Identifies proper חשבונית מס
-- **Business Numbers**: Extracts ח.פ and עוסק מורשה
-- **Mixed Expenses**: Handles partial business use
-- **Documentation**: Notes when additional docs needed
-
-### Special Rules Applied
-
-- **Client Meals**: Default 80% deductible
-- **Vehicle Expenses**: Prompts for usage logs
-- **Foreign Currency**: Notes exchange requirements
-- **Home Office**: Flags documentation needs
-
-## 💡 Tips for Best Results
-
-### Receipt Quality
-- Scan at 200+ DPI for PDFs
-- Ensure text is clearly visible
-- Include all parts of long receipts
-
-### Organization
-- Process receipts by month/quarter
-- Keep original files organized
-- Review extracted data before classification
-
-### Classification
-- Answer clarification questions accurately
-- Review AI suggestions carefully
-- Add notes for special circumstances
-- Keep documentation for mixed expenses
-
-## 🔧 Advanced Usage
-
-### Parallel Processing Configuration
-
-```bash
-# Optimize for large batches (100+ receipts)
-python receipt_extractor.py ./receipts --workers 15
-python receipt_classifier.py extracted_data.json --workers 15 --auto
-
-# Conservative for API rate limits
-python receipt_extractor.py ./receipts --workers 3
-python receipt_classifier.py extracted_data.json --workers 3
-
-# Maximum speed setup
-export ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
-python receipt_extractor.py ./receipts --workers 20
-python receipt_classifier.py extracted_data.json --workers 20 --auto
+### Environment Variables (.env)
+```
+OPENAI_API_KEY=your-api-key-here      # Required: OpenAI API key
+MAX_CONCURRENT_REQUESTS=5             # Optional: Parallel processing limit
+RECEIPTS_PER_FILE=10                  # Optional: Receipts per Excel file
 ```
 
-### Batch Processing Without Review
+### Command Line Options
 
-```bash
-# Auto-accept all classifications (use with caution)
-python receipt_classifier.py extracted_data.json --auto
+**receipt_extractor.py:**
+- `--output`: Output directory (default: ./receipts_extracted)
+- `--concurrent`: Max concurrent requests (default: 5)
+- `--receipts-per-file`: Receipts per Excel file (default: 10)
+- `--api-key`: Override API key
 
-# Combine with parallel processing for maximum speed
-python receipt_classifier.py extracted_data.json --auto --workers 10
-```
-
-### Custom API Key
-
-```bash
-# Pass API key directly
-python receipt_extractor.py ./receipts --api-key sk-ant-...
-```
-
-### Processing Single Receipt
-
-```python
-from receipt_extractor import ReceiptExtractor
-from pathlib import Path
-
-# Single receipt extraction
-extractor = ReceiptExtractor(max_workers=1)
-result = extractor.extract_receipt_data(Path("receipt.jpg"))
-print(json.dumps(result, indent=2))
-```
-
-### Batch Processing Script
-
-```bash
-#!/bin/bash
-# Full automated pipeline for batch processing
-
-RECEIPTS_DIR="./receipts"
-OUTPUT_DIR="./processed_$(date +%Y%m%d)"
-
-# Extract with 10 parallel workers
-python receipt_extractor.py "$RECEIPTS_DIR" \
-    --output "$OUTPUT_DIR/extracted" \
-    --workers 10 \
-    --model claude-3-5-sonnet-20241022
-
-# Find the latest extracted JSON
-EXTRACTED_JSON=$(ls -t "$OUTPUT_DIR/extracted"/extracted_data_*.json | head -1)
-
-# Classify with auto-mode and 10 workers
-python receipt_classifier.py "$EXTRACTED_JSON" \
-    --output "$OUTPUT_DIR/classified" \
-    --auto \
-    --workers 10 \
-    --model claude-3-5-sonnet-20241022
-
-echo "Processing complete! Check $OUTPUT_DIR for results"
-```
-
-## 📈 Cost Estimation
-
-- **Extraction**: ~500-1000 tokens per receipt
-- **Classification**: ~800-1500 tokens per receipt
-- **Total**: ~1300-2500 tokens per receipt
-
-Check [Anthropic pricing](https://www.anthropic.com/pricing) for current rates.
-
-### Model Comparison
-
-| Model | Speed | Cost | Best For |
-|-------|-------|------|----------|
-| Claude Opus 4.1 | Slower | Higher | Complex receipts, maximum accuracy |
-| Claude Sonnet 4 | Fast | Lower | Most receipts, batch processing |
-
-## ⚡ Performance Benchmarks
-
-Typical processing times for 100 receipts:
-
-| Configuration | Extraction Time | Classification Time | Total |
-|--------------|-----------------|-------------------|--------|
-| Sequential (1 worker) | ~8-10 min | ~6-8 min | ~14-18 min |
-| Parallel (5 workers) | ~2-3 min | ~2-3 min | ~4-6 min |
-| Parallel (10 workers) | ~1-2 min | ~1-2 min | ~2-4 min |
-| Max Speed (10 workers + Sonnet) | ~45-90 sec | ~45-90 sec | ~1.5-3 min |
-
-*Times vary based on receipt complexity and API response times*
-
-## 🔒 Security & Privacy
-
-- API keys are never stored in code
-- Receipt data is processed via Anthropic's API
-- No data is retained after processing
-- Consider local alternatives for sensitive data
+**receipt_consolidator.py:**
+- `--output`: Output directory (default: ./receipts_consolidated)
 
 ## 🐛 Troubleshooting
 
 ### Common Issues
 
-1. **"PDF conversion failed"**
+1. **PDF Processing Errors**
    - Ensure Poppler is installed
    - Check PDF isn't password protected
 
-2. **"JSON parsing error"**
-   - Receipt may be too blurry
-   - Try re-scanning at higher quality
+2. **API Rate Limits**
+   - Reduce `--concurrent` parameter
+   - Check OpenAI API usage limits
 
-3. **Classification confidence low**
-   - Provide more context in questions
-   - Add manual notes for clarity
+3. **Template Loading Errors**
+   - Verify `prompts/` directory exists
+   - Check `docs/ICOUNT_CATEGORIES.md` is present
 
-### Getting Help
+### Log Analysis
+- Check YAML logs in `llm_logs/` directories
+- Review `api_metadata` section for timing and errors
+- Examine `prompt_used` field for template rendering issues
 
-1. Check error messages in console
-2. Review extracted JSON for completeness
-3. Ensure API key has sufficient credits
-4. Test with single receipt first
+For detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
 
-## 📄 License
+## 📄 Documentation
 
-This tool is provided as-is for Israeli tax reporting purposes. Users are responsible for ensuring compliance with local tax regulations and maintaining proper documentation.
+- **Product Requirements**: `docs/PRODUCT_REQUIREMENTS.md`
+- **Technical Specifications**: `docs/TECHNICAL_SPEC.md`
+- **Troubleshooting Guide**: `docs/TROUBLESHOOTING.md`
+- **Israeli Tax Categories**: `docs/ICOUNT_CATEGORIES.md`
 
-## 🎯 Workflow Summary
+## 🔒 Security & Privacy
 
-1. **Collect** receipts (scan/photo)
-2. **Extract** data with Part 1
-3. **Review** HTML to verify extraction
-4. **Classify** with Part 2
-5. **Answer** clarification questions
-6. **Review** classifications
-7. **Import** CSV to accounting system
-8. **File** for tax reporting
+- OpenAI API processes data according to their privacy policy
+- No data stored permanently on OpenAI servers (store=false)
+- API keys never logged or transmitted
+- All processing logs stored locally
+
+## 📊 Performance
+
+Typical processing times for 10 receipts:
+- **Sequential**: ~2-3 minutes
+- **Concurrent (5)**: ~45-60 seconds
+- **Concurrent (10)**: ~30-45 seconds
+
+Processing time depends on:
+- Receipt complexity
+- Image/PDF size
+- OpenAI API response times
+- Network latency
 
 ---
 
-**Note**: This system assists with receipt processing but doesn't replace professional tax advice. Always consult with a tax professional for specific situations.
+**Note**: This system assists with receipt processing but doesn't replace professional tax advice. Always consult with a tax professional for compliance verification.

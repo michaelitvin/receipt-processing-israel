@@ -1,0 +1,35 @@
+Extract the following information from this receipt/invoice:
+
+1. Receipt Information:
+   - Receipt/invoice number
+   - Vendor name
+   - Date (format as YYYY-MM-DD)
+   - Document type: Determine if this is an "invoice" (חשבונית), "receipt" (קבלה), or "invoice+receipt" (חשבונית מס קבלה)
+   - Reasoning: Explain in Hebrew what this receipt is about (what was purchased/service received), what kind of vendor this is, and justify your category selection decision
+
+2. Amounts:
+   - Total excluding VAT
+   - VAT amount (usually 18% in Israel, but can be 0%)
+   - Total including VAT
+
+3. Line Items:
+   - Description of each item/service
+   - Amount excluding VAT for each item
+   - VAT amount for each item
+   - Total amount for each item
+   - Mark all items as deductible by default (true)
+
+4. Classification:
+   Select the most appropriate category based on the following Israeli tax categories and their VAT/tax implications:
+
+{{ categories_content }}
+{{ personal_instructions }}
+
+Important notes:
+- Extract amounts as numbers (not strings)
+- If VAT is not explicitly shown, calculate it from the totals
+- If no line items are detailed, create a single line item with the full amount
+- For confidence, use 0.0 to 1.0 scale
+- Handle both Hebrew and English text
+- If a field is not visible, use empty string for text fields and 0 for numbers
+- Pay attention to the VAT percentages and deductibility rules shown above for each category

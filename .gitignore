@@ -37,6 +37,10 @@ Receipts - triage*/
 *.log
 *.tmp
 
+# SSH Keys - Never commit these
+github-key-*
+
+
 # Jupyter Notebook
 .ipynb_checkpoints
 

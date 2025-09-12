@@ -1,0 +1,1 @@
+# Shared components for receipt processing system
