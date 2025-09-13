@@ -235,6 +235,14 @@ class ExcelGenerator:
         )
         ws.conditional_formatting.add('D15:D30', vat_rule)
         
+        # Red fill for non-deductible items
+        non_deductible_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
+        non_deductible_rule = FormulaRule(
+            formula=['F15=FALSE'],
+            fill=non_deductible_fill
+        )
+        ws.conditional_formatting.add('F15:F30', non_deductible_rule)
+        
         # Red fill for total mismatch
         error_red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
         total_rule = FormulaRule(
