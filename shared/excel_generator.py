@@ -146,10 +146,15 @@ class ExcelGenerator:
                     dv.add(ws[f'B{row}'])
                     ws.add_data_validation(dv)
             elif field_key == 'original_file':
-                # Add hyperlink to original file
-                ws[f'B{row}'] = receipt_info.get('original_file', '')
-                ws[f'B{row}'].hyperlink = receipt_info.get('original_file', '')
-                ws[f'B{row}'].font = Font(color="0000FF", underline="single")
+                # Add hyperlink to original file with filename as display text
+                original_file_path = receipt_info.get('original_file', '')
+                if original_file_path:
+                    filename = Path(original_file_path).name
+                    ws[f'B{row}'] = filename
+                    ws[f'B{row}'].hyperlink = original_file_path
+                    ws[f'B{row}'].font = Font(color="0000FF", underline="single")
+                else:
+                    ws[f'B{row}'] = ''
             elif field_key == 'reasoning':
                 # Make reasoning cell multiline with text wrapping
                 ws[f'B{row}'] = value
@@ -159,9 +164,15 @@ class ExcelGenerator:
             else:
                 ws[f'B{row}'] = value
                 
-            # Add verification formulas for amounts
+            # Add verification formulas for amounts and deductible calculations
             if field_key in ['total_excl_vat', 'vat_amount', 'total_incl_vat']:
-                if field_key == 'total_incl_vat':
+                # Replace static values with formulas that subtract non-deductible items
+                if field_key == 'total_excl_vat':
+                    ws[f'B{row}'] = f'={value}-SUMIF(F15:F115,FALSE,B15:B115)'
+                elif field_key == 'vat_amount':
+                    ws[f'B{row}'] = f'={value}-SUMIF(F15:F115,FALSE,C15:C115)'
+                elif field_key == 'total_incl_vat':
+                    ws[f'B{row}'] = f'={value}-SUMIF(F15:F115,FALSE,E15:E115)'
                     # Add verification formula
                     ws[f'C{row}'] = f'=B{row-2}+B{row-1}'
                     
@@ -190,11 +201,20 @@ class ExcelGenerator:
             
             ws.cell(row=row, column=5, value=item.get('total', 0))
             
-            # Deductible checkbox (using TRUE/FALSE)
-            ws.cell(row=row, column=6, value=item.get('deductible', True))
+            # Deductible checkbox
+            deductible_cell = ws.cell(row=row, column=6, value=item.get('deductible', True))
             
-            # Notes column (empty initially, will be populated by validation)
-            ws.cell(row=row, column=7, value='')
+            # Add checkbox-style data validation
+            dv = DataValidation(type="list", formula1='"TRUE,FALSE"', showDropDown=False)
+            dv.add(deductible_cell)
+            ws.add_data_validation(dv)
+            
+            # Notes column - add note for non-deductible items
+            if not item.get('deductible', True):
+                notes_cell = ws.cell(row=row, column=7, value='לא ניתן לניכוי - ראה הסבר בשדה הנמקה')
+                notes_cell.alignment = Alignment(wrap_text=True, vertical='top')
+            else:
+                ws.cell(row=row, column=7, value='')
             
     def _add_receipt_image(self, ws: Worksheet, receipt: Dict[str, Any], images_dir: Path):
         """Add receipt image to worksheet"""
@@ -235,21 +255,21 @@ class ExcelGenerator:
         )
         ws.conditional_formatting.add('D15:D30', vat_rule)
         
-        # Red fill for non-deductible items
+        # Red fill for non-deductible items (only if not empty)
         non_deductible_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
         non_deductible_rule = FormulaRule(
-            formula=['F15=FALSE'],
+            formula=['AND(NOT(F15),NOT(ISBLANK(F15)))'],
             fill=non_deductible_fill
         )
-        ws.conditional_formatting.add('F15:F30', non_deductible_rule)
+        ws.conditional_formatting.add('F15:F115', non_deductible_rule)
         
         # Red fill for total mismatch
         error_red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
         total_rule = FormulaRule(
-            formula=['ABS(B8-C8)>0.01'],
+            formula=['ABS(B9-C9)>0.01'],
             fill=error_red_fill
         )
-        ws.conditional_formatting.add('D8:D8', total_rule)
+        ws.conditional_formatting.add('D9:D9', total_rule)
         
         # Add notes for validation errors
         amounts = receipt.get('amounts', {})
@@ -259,8 +279,8 @@ class ExcelGenerator:
         
         # Check total validation
         if abs((total_excl + vat) - total_incl) > 0.01:
-            ws['D8'] = 'שגיאה: סכום לא תואם'
-            ws['D8'].font = Font(color="FF0000")
+            ws['D9'] = 'שגיאה: סכום לא תואם'
+            ws['D9'].font = Font(color="FF0000")
             
         # Check VAT percentage
         if total_excl > 0:

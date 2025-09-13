@@ -136,8 +136,8 @@ class OpenAIClient:
             # Parse the structured response from output_text
             result = json.loads(response.output_text)
             
-            # Add the original filename
-            result['receipt_info']['original_file'] = file_path.name
+            # Add the original file path
+            result['receipt_info']['original_file'] = str(file_path)
             
             # Add metadata for logging (without underscore prefix)
             result['prompt_used'] = prompt

@@ -44,8 +44,8 @@ class ReceiptExtractor:
         api_key: str,
         output_dir: Path,
         model: str,
-        max_concurrent: int = 5,
-        receipts_per_file: int = 10
+        max_concurrent: int = 100,
+        receipts_per_file: int = 100
     ):
         """Initialize the extractor"""
         self.api_key = api_key
@@ -244,7 +244,7 @@ class ReceiptExtractor:
                         'vendor': '',
                         'date': '',
                         'document_type': '',
-                        'original_file': Path(failed_result.get('file_path', '')).name
+                        'original_file': failed_result.get('file_path', '')
                     },
                     'amounts': {
                         'total_excl_vat': 0,
@@ -335,14 +335,14 @@ async def main():
     parser.add_argument(
         '--concurrent',
         type=int,
-        default=int(os.getenv('MAX_CONCURRENT_REQUESTS', 5)),
-        help='Max concurrent API requests (default: 5)'
+        default=int(os.getenv('MAX_CONCURRENT_REQUESTS', 100)),
+        help='Max concurrent API requests (default: 100)'
     )
     parser.add_argument(
         '--receipts-per-file',
         type=int,
-        default=int(os.getenv('RECEIPTS_PER_FILE', 10)),
-        help='Receipts per Excel file (default: 10)'
+        default=int(os.getenv('RECEIPTS_PER_FILE', 100)),
+        help='Receipts per Excel file (default: 100)'
     )
     parser.add_argument(
         '--api-key',
