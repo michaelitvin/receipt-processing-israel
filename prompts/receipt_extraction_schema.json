@@ -15,9 +15,10 @@
           "date": {"type": "string"},
           "document_type": {"type": "string", "enum": ["invoice", "receipt", "invoice+receipt"]},
           "original_file": {"type": "string"},
-          "reasoning": {"type": "string"}
+          "reasoning": {"type": "string"},
+          "currency": {"type": "string", "enum": ["ILS", "USD", "EUR"]}
         },
-        "required": ["number", "vendor", "date", "document_type", "original_file", "reasoning"]
+        "required": ["number", "vendor", "date", "document_type", "original_file", "reasoning", "currency"]
       },
       "amounts": {
         "type": "object",

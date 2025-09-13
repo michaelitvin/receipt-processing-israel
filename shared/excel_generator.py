@@ -28,6 +28,7 @@ class ExcelGenerator:
         ('ספק', 'vendor'),
         ('תאריך', 'date'),
         ('סוג מסמך', 'document_type'),
+        ('מטבע', 'currency'),
         ('סה"כ ללא מע"מ', 'total_excl_vat'),
         ('מע"מ', 'vat_amount'),
         ('סה"כ כולל מע"מ', 'total_incl_vat'),
