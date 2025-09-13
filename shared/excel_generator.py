@@ -277,13 +277,14 @@ class ExcelGenerator:
             with open(self.categories_file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 
-            # Extract category names between ** markers
-            pattern = r'\*\*([^*]+)\*\*'
-            matches = re.findall(pattern, content)
+            # Extract category names from first column of tables (more restrictive pattern)
+            # Matches: | **category_name** | at the start of a line
+            pattern = r'^\|\s*\*\*([^*]+)\*\*\s*\|'
+            matches = re.findall(pattern, content, re.MULTILINE)
             
-            # Filter out non-category items
-            skip_items = ['עוסק פטור', 'רכוש קבוע', 'מתנות', 'קנסות ודוחות']
-            categories = [m for m in matches if m not in skip_items and 'Not a category' not in m]
+            # Filter out table headers
+            skip_items = ['קטגוריה']
+            categories = [m.strip() for m in matches if m.strip() not in skip_items]
             
         except Exception as e:
             logger.error(f"Error loading categories from {self.categories_file_path}: {e}")

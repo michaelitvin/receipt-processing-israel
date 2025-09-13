@@ -74,7 +74,7 @@ class OpenAIClient:
     async def extract_receipt_data(
         self, 
         file_path: Path,
-        categories_file_path: Path
+        extraction_prompt_dir: Path
     ) -> Dict[str, Any]:
         """Extract receipt data using OpenAI Responses API with structured output"""
         
@@ -85,8 +85,8 @@ class OpenAIClient:
         # Read and encode file (image or PDF)
         file_data, mime_type = await self._encode_file(file_path)
         
-        # Build the prompt using Jinja template with full categories content
-        prompt = await self._build_extraction_prompt(categories_file_path)
+        # Build the prompt using Jinja template with all extraction prompt content
+        prompt = await self._build_extraction_prompt(extraction_prompt_dir)
         
         # Use the loaded schema
         text_format = self.text_format
@@ -181,29 +181,26 @@ class OpenAIClient:
             
         return base64_data, mime_type
             
-    async def _build_extraction_prompt(self, categories_file_path: Path) -> str:
-        """Build the extraction prompt using Jinja template with full categories content and personal instructions"""
+    async def _build_extraction_prompt(self, extraction_prompt_dir: Path) -> str:
+        """Build the extraction prompt using Jinja template with all content from extraction-prompt directory"""
         
-        # Read the entire ICOUNT_CATEGORIES.md file content
-        async with aiofiles.open(categories_file_path, 'r', encoding='utf-8') as f:
-            categories_content = await f.read()
+        # Load all markdown files from extraction-prompt directory in order
+        # Skip README.md file
+        prompt_files = sorted([f for f in extraction_prompt_dir.glob("*.md") if f.name != "README.md"])
         
-        # Read the personal instructions file
-        personal_instructions_path = categories_file_path.parent / 'PERSONAL_INSTRUCTIONS.md'
-        async with aiofiles.open(personal_instructions_path, 'r', encoding='utf-8') as f:
-            personal_instructions_raw = await f.read()
+        combined_content = []
+        for file_path in prompt_files:
+            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                combined_content.append(content)
         
-        # Check if personal instructions contains only the default comment
-        # If it contains the comment about removing it, skip including personal instructions
-        if "Remove this comment and add your instructions below" in personal_instructions_raw:
-            personal_instructions = ""
-        else:
-            personal_instructions = "\n" + personal_instructions_raw
+        # Join all content with double newlines
+        full_content = "\n\n".join(combined_content)
         
-        # Render the template with full categories content and personal instructions
+        # Render the template with combined content
         prompt = self.prompt_template.render(
-            categories_content=categories_content,
-            personal_instructions=personal_instructions,
+            categories_content=full_content,
+            personal_instructions="",  # Now included in categories_content
         )
         
         return prompt

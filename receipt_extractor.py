@@ -54,12 +54,14 @@ class ReceiptExtractor:
         self.receipts_per_file = receipts_per_file
         self.model = model
         
-        # Load categories file path
-        self.categories_file = Path(__file__).parent / 'docs' / 'ICOUNT_CATEGORIES.md'
+        # Load extraction prompt directory
+        self.extraction_prompt_dir = Path(__file__).parent / 'docs' / 'extraction-prompt'
         
         # Initialize components
         self.openai_client = OpenAIClient(api_key, model)
-        self.excel_generator = ExcelGenerator(self.categories_file)
+        # For backward compatibility, pass the categories file to ExcelGenerator
+        categories_file = self.extraction_prompt_dir / '001-ICOUNT_CATEGORIES.md'
+        self.excel_generator = ExcelGenerator(categories_file)
         
         # Setup output directories
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -153,14 +155,14 @@ class ReceiptExtractor:
                 # Extract data using OpenAI
                 request_data = {
                     'file': str(receipt_path),
-                    'categories_file': self.categories_file.name,
+                    'extraction_prompt_dir': str(self.extraction_prompt_dir),
                     'timestamp': datetime.now().isoformat()
                 }
                 
                 try:
                     result = await self.openai_client.extract_receipt_data(
                         receipt_path,
-                        self.categories_file
+                        self.extraction_prompt_dir
                     )
                     
                     # Log successful interaction with response format
@@ -297,7 +299,7 @@ class ReceiptExtractor:
             'configuration': {
                 'max_concurrent_requests': self.max_concurrent,
                 'receipts_per_file': self.receipts_per_file,
-                'categories_file': str(self.categories_file)
+                'extraction_prompt_dir': str(self.extraction_prompt_dir)
             }
         }
         
