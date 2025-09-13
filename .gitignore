@@ -37,6 +37,9 @@ Receipts - triage*/
 *.log
 *.tmp
 
+# Personal prompt files
+*.personal.md
+
 # SSH Keys - Never commit these
 github-key-*
 
