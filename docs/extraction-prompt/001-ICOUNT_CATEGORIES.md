@@ -95,6 +95,6 @@
 ## Important Notes
 
 - **עוסק פטור**: Not a category - when buying from VAT-exempt vendor, use the regular category (e.g., יועצים) but set VAT to 0%
-- **רכוש קבוע**: Items over 1,000₪ should be categorized as fixed assets
+- **רכוש קבוע**: Items over 1,000₪ should usually be categorized as fixed assets
 - **מתנות**: Limited to 250₪ per gift, must document recipient
 - **קנסות ודוחות**: Never deductible - do not include in any expense report

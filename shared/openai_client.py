@@ -21,6 +21,7 @@ class ReceiptInfo:
     document_type: str  # "invoice", "receipt", "invoice+receipt"
     original_file: str
     reasoning: str
+    currency: str
 
 @dataclass
 class AmountData:
