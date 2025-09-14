@@ -26,6 +26,7 @@ class ExcelGenerator:
     HEADER_FIELDS = [
         ('מספר קבלה', 'number'),
         ('ספק', 'vendor'),
+        ('תז/חפ הספק', 'vendor_id'),
         ('תאריך', 'date'),
         ('סוג מסמך', 'document_type'),
         ('מטבע', 'currency'),

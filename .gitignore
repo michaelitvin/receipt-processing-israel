@@ -33,6 +33,7 @@ Thumbs.db
 
 # Project specific
 receipts_extracted*/
+receipts_consolidated*/
 Receipts - triage*/
 *.log
 *.tmp
