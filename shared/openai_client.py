@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class ReceiptInfo:
     number: str
     vendor: str
+    vendor_id: str
     date: str
     document_type: str  # "invoice", "receipt", "invoice+receipt"
     original_file: str
