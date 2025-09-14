@@ -169,14 +169,14 @@ class ReceiptConsolidator:
             
     def _generate_icount_csv(self, receipts: List[Dict[str, Any]]) -> Path:
         """Generate CSV file in iCount import format"""
-        
+
         # Prepare data for CSV
         csv_rows = []
-        
+
         for receipt in receipts:
             # Handle line items - create separate row for each line item
             line_items = receipt.get('line_items', [])
-            
+
             if not line_items:
                 # If no line items, create single row with full amount
                 csv_rows.append(self._create_csv_row(receipt, None))
@@ -185,14 +185,21 @@ class ReceiptConsolidator:
                 for line_item in line_items:
                     if line_item.get('deductible', True):  # Only include deductible items
                         csv_rows.append(self._create_csv_row(receipt, line_item))
-                        
+
         # Create DataFrame
         df = pd.DataFrame(csv_rows)
-        
+
+        # Group by vendor name and sort by date
+        if not df.empty:
+            # Sort by vendor name first, then by date
+            df = df.sort_values(by=['שם הספק', 'תאריך האסמכתא'], na_position='last')
+
+            logger.info(f"Sorted {len(df)} rows by vendor name and date")
+
         # Generate CSV file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         csv_file = self.output_dir / f'icount_import_{timestamp}.csv'
-        
+
         # Save with UTF-8 encoding for Hebrew support
         df.to_csv(csv_file, index=False, encoding='utf-8-sig')
         
@@ -201,31 +208,59 @@ class ReceiptConsolidator:
         
     def _create_csv_row(self, receipt: Dict[str, Any], line_item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Create a single CSV row for iCount import"""
-        
+
         if line_item:
-            description = line_item['description']
             amount = line_item['total']
         else:
-            description = f"Receipt from {receipt.get('vendor', 'Unknown')}"
             amount = receipt.get('total_incl_vat', 0)
-            
+
+        # Get category and append VAT 0 indicator if applicable
+        category = receipt.get('category', '')
+        vat_amount = receipt.get('vat_amount', 0)
+        if vat_amount == 0 and category:
+            category = f"{category} (ללא מע״מ)"
+
+        # Format date in yyyy-mm-dd format
+        date_str = self._format_date_icount(receipt.get('date', ''))
+
+        # Map currency to numeric code
+        currency_code = self._map_currency_to_code(receipt.get('currency', ''))
+
+        # Map document type to iCount format
+        doc_type = self._map_document_type_to_icount(receipt.get('document_type', ''))
+
+        # Get original file path from receipt data
+        original_file_path = ''
+        if 'receipt_info' in receipt and isinstance(receipt['receipt_info'], dict):
+            original_file_path = receipt['receipt_info'].get('original_file', '')
+        elif 'original_file' in receipt:
+            original_file_path = receipt.get('original_file', '')
+
+        # Return all 15 columns required by iCount plus additional column for original file
         return {
-            'תאריך': self._format_date(receipt.get('date', '')),
-            'ספק': receipt.get('vendor', ''),
-            'תיאור': description,
-            'סכום': amount,
-            'מטבע': receipt.get('currency', ''),
-            'קטגוריה': receipt.get('category', ''),
-            'מספר מסמך': receipt.get('receipt_number', ''),
-            'סוג מסמך': receipt.get('document_type', ''),
-            'קובץ מקור': receipt.get('source_file', '')
+            'תז/חפ הספק': '',  # Column A
+            'שם הספק': receipt.get('vendor', ''),  # Column B
+            'שם סוג הוצאה': category,  # Column C
+            'סכום': amount,  # Column D
+            'מטבע': currency_code,  # Column E
+            'שער': '',  # Column F
+            'סוג מסמך': doc_type,  # Column G
+            'מספר מסמך': receipt.get('receipt_number', ''),  # Column H
+            'תאריך האסמכתא': date_str,  # Column I
+            'תאריך התשלום': date_str,  # Column J
+            'ההוצאה שולמה': '1',  # Column K
+            'שולמה בתאריך': date_str,  # Column L
+            'תאריך דיווח שונה': '',  # Column M
+            'לקוח': '',  # Column N
+            'פרויקט': '',  # Column O
+            'קובץ מקור': original_file_path  # Column P - Additional column for original file path
         }
         
     def _format_date(self, date_value: Any) -> str:
         """Format date for iCount import"""
         if pd.isna(date_value):
             return ''
-            
+
         try:
             # Try to parse as datetime
             if isinstance(date_value, str):
@@ -236,14 +271,88 @@ class ReceiptConsolidator:
                         return dt.strftime('%d/%m/%Y')
                     except ValueError:
                         continue
-                        
+
             elif hasattr(date_value, 'strftime'):
                 return date_value.strftime('%d/%m/%Y')
-                
+
         except Exception as e:
             logger.warning(f"Error formatting date {date_value}: {e}")
-            
+
         return str(date_value)
+
+    def _format_date_icount(self, date_value: Any) -> str:
+        """Format date for iCount import in yyyy-mm-dd format"""
+        if pd.isna(date_value):
+            return ''
+
+        try:
+            # Try to parse as datetime
+            if isinstance(date_value, str):
+                # Handle different date formats
+                for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%d.%m.%Y']:
+                    try:
+                        dt = datetime.strptime(date_value, fmt)
+                        return dt.strftime('%Y-%m-%d')
+                    except ValueError:
+                        continue
+
+            elif hasattr(date_value, 'strftime'):
+                return date_value.strftime('%Y-%m-%d')
+
+        except Exception as e:
+            logger.warning(f"Error formatting date {date_value}: {e}")
+
+        return str(date_value)
+
+    def _map_currency_to_code(self, currency: str) -> str:
+        """Map currency name to iCount numeric code"""
+        # Currency mapping: 1=EUR, 2=USD, 3=JPY, 4=GBP, 5=ILS
+        # Empty means ILS (default)
+        currency_mapping = {
+            'ILS': '',  # Default, no need to specify
+            'שקל': '',
+            '₪': '',
+            'NIS': '',
+            'USD': '2',
+            'דולר': '2',
+            '$': '2',
+            'EUR': '1',
+            'אירו': '1',
+            '€': '1',
+            'GBP': '4',
+            'לירה סטרלינג': '4',
+            '£': '4',
+            'JPY': '3',
+            'ין': '3',
+            '¥': '3'
+        }
+
+        if not currency:
+            return ''  # Default to ILS
+
+        # Try to find currency in mapping
+        currency_upper = str(currency).upper().strip()
+        return currency_mapping.get(currency_upper, currency_mapping.get(currency, ''))
+
+    def _map_document_type_to_icount(self, doc_type: str) -> str:
+        """Map document type to iCount format"""
+        # iCount expects: 'invrec', 'receipt', 'invoice', or 'deal'
+        doc_type_mapping = {
+            'חשבונית': 'invoice',
+            'קבלה': 'receipt',
+            'חשבונית+קבלה': 'invrec',
+            'חשבונית מס קבלה': 'invrec',
+            'invoice': 'invoice',
+            'receipt': 'receipt',
+            'invoice+receipt': 'invrec',
+            'deal': 'deal'
+        }
+
+        if not doc_type:
+            return 'invrec'  # Default
+
+        doc_type_lower = str(doc_type).lower().strip()
+        return doc_type_mapping.get(doc_type_lower, doc_type_mapping.get(doc_type, 'invrec'))
         
     def _safe_float(self, value: Any) -> float:
         """Safely convert value to float"""
