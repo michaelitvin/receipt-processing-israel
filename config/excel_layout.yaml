@@ -1,0 +1,177 @@
+# Excel worksheet layout configuration for receipt processing system
+
+# Header section configuration
+header_section:
+  start_row: 2                # First header field starts at row 2
+  field_column: 1             # Column A contains field names (Hebrew)
+  value_column: 2             # Column B contains field values
+  max_rows: 20                # Search up to row 20 for header fields
+
+# Line items section configuration
+line_items_section:
+  header_row: 20              # Line item headers at row 20
+  data_start_row: 21          # Line item data starts at row 21
+  max_rows: 121               # Process up to row 121 for line items
+  columns:
+    description: 1            # Column A - Item description
+    amount_excl_vat: 2        # Column B - Amount excluding VAT
+    vat: 3                    # Column C - VAT amount
+    vat_percent: 4            # Column D - VAT percentage (formula)
+    total: 5                  # Column E - Total amount including VAT
+    deductible: 6             # Column F - Deductible flag (True/False)
+    notes: 7                  # Column G - Notes field
+
+# Formula configurations
+formulas:
+  # Range templates for SUMIF formulas (use field names that map to columns)
+  sumif_ranges:
+    deductible_filter:
+      field: "deductible"
+    amount_excl_vat:
+      field: "amount_excl_vat"
+    vat_amount:
+      field: "vat"
+    total_incl_vat:
+      field: "total"
+
+  # Verification formulas
+  verification:
+    total_check:
+      excl_vat_field: "total_excl_vat"  # Header section field
+      vat_field: "vat_amount"           # Header section field
+
+# Conditional formatting configurations
+conditional_formatting:
+  vat_validation:
+    field: "vat_percent"
+    rows_count: 16            # Number of rows to format from start row
+    formula_template: "AND(ABS({cell})>0.1,ABS({cell}-18)>0.1)"
+
+  non_deductible:
+    field: "deductible"
+    formula_template: "AND(NOT({cell}),NOT(ISBLANK({cell})))"
+
+# Field mappings between Hebrew display names and English field keys
+field_mappings:
+  - hebrew: "מספר קבלה"
+    english: "number"
+  - hebrew: "ספק"
+    english: "vendor"
+  - hebrew: "תז/חפ הספק"
+    english: "vendor_id"
+  - hebrew: "תאריך"
+    english: "date"
+  - hebrew: "סוג מסמך"
+    english: "document_type"
+  - hebrew: "מטבע"
+    english: "currency"
+  - hebrew: "סה\"כ ללא מע\"מ"
+    english: "total_excl_vat"
+  - hebrew: "מע\"מ"
+    english: "vat_amount"
+  - hebrew: "סה\"כ כולל מע\"מ"
+    english: "total_incl_vat"
+  - hebrew: "קטגוריה"
+    english: "category"
+  - hebrew: "הסבר והנמקה"
+    english: "reasoning"
+  - hebrew: "קישור למקור"
+    english: "original_file"
+
+# Line item column headers in Hebrew
+line_item_headers:
+  - "תיאור"
+  - "סה\"כ ללא מע\"מ"
+  - "מע\"מ"
+  - "אחוז מע\"מ"
+  - "סה\"כ כולל מע\"מ"
+  - "ניתן לניכוי"
+  - "הערות"
+
+# Excel formatting settings
+formatting:
+  header_section:
+    title_row: 1              # Row 1 contains column titles
+    title_columns: 4          # Number of title columns (A1, B1, C1, D1)
+    bold_font: true
+
+  line_items_section:
+    header_bold: true
+    header_background_color: "CCCCCC"
+    reasoning_cell_height: 60
+    wrap_text: true
+
+  image_section:
+    start_column: 8           # Column H (8th column)
+    start_row: 2              # Row 2
+    merge_columns: 4          # Merge 4 columns (H, I, J, K)
+    merge_rows: 24            # Merge down to row 25 (24 rows from row 2)
+
+# Color codes for conditional formatting
+colors:
+  vat_validation: "FFFF00"    # Yellow for VAT validation errors
+  non_deductible: "FFA500"    # Orange for non-deductible items
+  error: "FF0000"             # Red for calculation errors
+  warning: "FF9900"           # Orange for warnings
+  hyperlink: "0000FF"         # Blue for hyperlinks
+
+# Document type configurations
+document_types:
+  valid_types:
+    - "חשבונית"
+    - "קבלה"
+    - "חשבונית+קבלה"
+
+  # Mapping from English (API response) to Hebrew (display)
+  mappings:
+    invoice: "חשבונית"
+    receipt: "קבלה"
+    "invoice+receipt": "חשבונית+קבלה"
+
+# Column width settings
+column_widths:
+  header_section:
+    field_name: 20            # Column A - Field names
+    value: 50                 # Column B - Values (wider for reasoning)
+    verification: 15          # Column C - Verification
+    notes: 30                 # Column D - Notes
+
+  line_items_section:
+    default: 15               # Default width for line item columns (E, F, G)
+
+  image_section:
+    image_column: 50          # Column H - Image display
+
+# Header title labels
+header_titles:
+  - "שם שדה"                 # Field name
+  - "ערך"                     # Value
+  - "אימות"                  # Verification
+  - "הערות"                  # Notes
+
+# Image settings
+image_settings:
+  width: 400
+  height: 600
+
+# Worksheet settings
+worksheet_settings:
+  name_prefix: "R"            # Prefix for worksheet names
+  name_format: "{prefix}{idx:03d}"  # Format: R001, R002, etc.
+  default_sheet_name: "Sheet"  # Default Excel sheet name to remove
+
+# Validation settings
+validation_settings:
+  boolean_options: "TRUE,FALSE"
+  show_dropdown: false
+
+# Text messages and labels
+text_messages:
+  non_deductible_note: "לא ניתן לניכוי - ראה הסבר בשדה הנמקה"
+  total_mismatch_error: "שגיאה: סכום לא תואם"
+  vat_warning_format: "אזהרה: מע״מ {vat_pct:.1f}%"
+
+# Category loading settings
+category_settings:
+  skip_items:
+    - "קטגוריה"              # Skip table headers when loading categories

@@ -21,40 +21,14 @@ logger = logging.getLogger(__name__)
 
 class ExcelGenerator:
     """Generate Excel files for receipt data"""
-    
-    # Header field names in Hebrew
-    HEADER_FIELDS = [
-        ('מספר קבלה', 'number'),
-        ('ספק', 'vendor'),
-        ('תז/חפ הספק', 'vendor_id'),
-        ('תאריך', 'date'),
-        ('סוג מסמך', 'document_type'),
-        ('מטבע', 'currency'),
-        ('סה"כ ללא מע"מ', 'total_excl_vat'),
-        ('מע"מ', 'vat_amount'),
-        ('סה"כ כולל מע"מ', 'total_incl_vat'),
-        ('קטגוריה', 'category'),
-        ('הסבר והנמקה', 'reasoning'),
-        ('קישור למקור', 'original_file')
-    ]
-    
-    # Line item column headers
-    LINE_ITEM_HEADERS = [
-        'תיאור',
-        'סה"כ ללא מע"מ', 
-        'מע"מ',
-        'אחוז מע"מ',
-        'סה"כ כולל מע"מ',
-        'ניתן לניכוי',
-        'הערות'
-    ]
-    
-    # Document type mappings
-    DOCUMENT_TYPES = ['חשבונית', 'קבלה', 'חשבונית+קבלה']
-    
+
     def __init__(self, categories_file_path: Path):
         """Initialize with categories file path"""
         self.categories_file_path = categories_file_path
+        # Import here to avoid circular imports
+        from .excel_config import get_excel_config
+        self.config = get_excel_config()
+        # Load categories after config is set
         self.categories = self._load_categories()
         
     def create_batch_workbook(self, receipts: List[Dict[str, Any]], images_dir: Path) -> Workbook:
@@ -62,12 +36,13 @@ class ExcelGenerator:
         wb = Workbook()
         
         # Remove default sheet
-        if 'Sheet' in wb.sheetnames:
-            wb.remove(wb['Sheet'])
+        default_sheet = self.config.get_default_sheet_name()
+        if default_sheet in wb.sheetnames:
+            wb.remove(wb[default_sheet])
             
         # Create worksheet for each receipt
         for idx, receipt in enumerate(receipts, 1):
-            ws_name = f"R{idx:03d}"
+            ws_name = self.config.get_worksheet_name(idx)
             ws = wb.create_sheet(title=ws_name)
             self._create_receipt_worksheet(ws, receipt, images_dir)
             
@@ -75,19 +50,20 @@ class ExcelGenerator:
         
     def _create_receipt_worksheet(self, ws: Worksheet, receipt: Dict[str, Any], images_dir: Path):
         """Create a single receipt worksheet with data and image"""
-        
-        # Set column widths
-        ws.column_dimensions['A'].width = 20  # Field names
-        ws.column_dimensions['B'].width = 50  # Values (wider for reasoning)
-        ws.column_dimensions['C'].width = 15  # Verification
-        ws.column_dimensions['D'].width = 30  # Notes
-        
-        # For line items
+
+        # Set column widths from configuration
+        ws.column_dimensions['A'].width = self.config.get_header_column_width('field_name')
+        ws.column_dimensions['B'].width = self.config.get_header_column_width('value')
+        ws.column_dimensions['C'].width = self.config.get_header_column_width('verification')
+        ws.column_dimensions['D'].width = self.config.get_header_column_width('notes')
+
+        # For line items - use default width from config
+        line_item_width = self.config.config['column_widths']['line_items_section']['default']
         for col in range(5, 8):  # E, F, G
-            ws.column_dimensions[get_column_letter(col)].width = 15
-            
+            ws.column_dimensions[get_column_letter(col)].width = line_item_width
+
         # Image columns (H onwards)
-        ws.column_dimensions['H'].width = 50
+        ws.column_dimensions['H'].width = self.config.config['column_widths']['image_section']['image_column']
         
         # Add header section
         self._add_header_section(ws, receipt)
@@ -103,25 +79,26 @@ class ExcelGenerator:
         
     def _add_header_section(self, ws: Worksheet, receipt: Dict[str, Any]):
         """Add header information section"""
-        ws['A1'] = 'שם שדה'
-        ws['B1'] = 'ערך'
-        ws['C1'] = 'אימות'
-        ws['D1'] = 'הערות'
-        
-        # Style headers
-        for cell in [ws['A1'], ws['B1'], ws['C1'], ws['D1']]:
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
-            
+        # Add title row using dynamic config
+        title_cells = self.config.get_title_cells()
+        titles = self.config.get_header_titles()
+
+        for cell_ref, title in zip(title_cells, titles):
+            ws[cell_ref] = title
+            ws[cell_ref].font = Font(bold=True)
+            ws[cell_ref].fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+
         # Add receipt info
         receipt_info = receipt.get('receipt_info', {})
         amounts = receipt.get('amounts', {})
         classification = receipt.get('classification', {})
-        
-        row = 2
-        for hebrew_name, field_key in self.HEADER_FIELDS:
-            ws[f'A{row}'] = hebrew_name
-            
+
+        row = self.config.header_start_row
+        for hebrew_name, field_key in self.config.get_header_fields():
+            field_cell = self.config.get_cell_reference(row, self.config.header_field_column)
+            value_cell = self.config.get_cell_reference(row, self.config.header_value_column)
+            ws[field_cell] = hebrew_name
+
             # Get value based on field
             if field_key in receipt_info:
                 value = receipt_info[field_key]
@@ -131,91 +108,105 @@ class ExcelGenerator:
                 value = classification.get('category', '')
             else:
                 value = ''
-                
+
             # Special handling for document type
             if field_key == 'document_type':
-                ws[f'B{row}'] = self._map_document_type(value)
+                ws[value_cell] = self.config.get_document_type_mapping(value)
                 # Add dropdown validation
-                dv = DataValidation(type="list", formula1='"' + ','.join(self.DOCUMENT_TYPES) + '"')
-                dv.add(ws[f'B{row}'])
+                document_types = self.config.get_document_types()
+                dv = DataValidation(type="list", formula1='"' + ','.join(document_types) + '"')
+                dv.add(ws[value_cell])
                 ws.add_data_validation(dv)
             elif field_key == 'category':
-                ws[f'B{row}'] = value
+                ws[value_cell] = value
                 # Add category dropdown
                 if self.categories:
                     dv = DataValidation(type="list", formula1='"' + ','.join(self.categories) + '"')
-                    dv.add(ws[f'B{row}'])
+                    dv.add(ws[value_cell])
                     ws.add_data_validation(dv)
             elif field_key == 'original_file':
                 # Add hyperlink to original file with filename as display text
                 original_file_path = receipt_info.get('original_file', '')
                 if original_file_path:
                     filename = Path(original_file_path).name
-                    ws[f'B{row}'] = filename
-                    ws[f'B{row}'].hyperlink = original_file_path
-                    ws[f'B{row}'].font = Font(color="0000FF", underline="single")
+                    ws[value_cell] = filename
+                    # Create proper file:// URL for absolute path
+                    file_url = f"file://{Path(original_file_path).resolve()}"
+                    ws[value_cell].hyperlink = file_url
+                    ws[value_cell].font = Font(color=self.config.get_color('hyperlink'), underline="single")
                 else:
-                    ws[f'B{row}'] = ''
+                    ws[value_cell] = ''
             elif field_key == 'reasoning':
                 # Make reasoning cell multiline with text wrapping
-                ws[f'B{row}'] = value
-                ws[f'B{row}'].alignment = Alignment(wrap_text=True, vertical='top')
+                ws[value_cell] = value
+                ws[value_cell].alignment = Alignment(wrap_text=True, vertical='top')
                 # Make the row taller for reasoning
-                ws.row_dimensions[row].height = 60
+                ws.row_dimensions[row].height = self.config.config['formatting']['line_items_section']['reasoning_cell_height']
             else:
-                ws[f'B{row}'] = value
-                
-            # Add verification formulas for amounts and deductible calculations
-            if field_key in ['total_excl_vat', 'vat_amount', 'total_incl_vat']:
-                # Replace static values with formulas that subtract non-deductible items
-                if field_key == 'total_excl_vat':
-                    ws[f'B{row}'] = f'={value}-SUMIF(F15:F115,FALSE,B15:B115)'
-                elif field_key == 'vat_amount':
-                    ws[f'B{row}'] = f'={value}-SUMIF(F15:F115,FALSE,C15:C115)'
-                elif field_key == 'total_incl_vat':
-                    ws[f'B{row}'] = f'={value}-SUMIF(F15:F115,FALSE,E15:E115)'
-                    # Add verification formula
-                    ws[f'C{row}'] = f'=B{row-2}+B{row-1}'
-                    
+                ws[value_cell] = value
+
+            # Add verification formula for total_incl_vat to check if it equals excl + vat
+            if field_key == 'total_incl_vat':
+                verify_cell = self.config.get_cell_reference(row, self.config.header_value_column + 1)
+                excl_cell = self.config.get_cell_reference(row-2, self.config.header_value_column)
+                vat_cell = self.config.get_cell_reference(row-1, self.config.header_value_column)
+                ws[verify_cell] = f'={excl_cell}+{vat_cell}'
+
             row += 1
             
     def _add_line_items_section(self, ws: Worksheet, line_items: List[Dict[str, Any]]):
         """Add line items table"""
-        start_row = 14
-        
+        start_row = self.config.line_items_header_row
+        headers = self.config.get_line_item_headers()
+
         # Add headers
-        for col_idx, header in enumerate(self.LINE_ITEM_HEADERS, 1):
+        for col_idx, header in enumerate(headers, 1):
             cell = ws.cell(row=start_row, column=col_idx, value=header)
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+            if self.config.config['formatting']['line_items_section']['header_bold']:
+                cell.font = Font(bold=True)
+            bg_color = self.config.config['formatting']['line_items_section']['header_background_color']
+            cell.fill = PatternFill(start_color=bg_color, end_color=bg_color, fill_type="solid")
             
         # Add line items
-        for idx, item in enumerate(line_items, 1):
-            row = start_row + idx
-            
-            ws.cell(row=row, column=1, value=item.get('description', ''))
-            ws.cell(row=row, column=2, value=item.get('amount_excl_vat', 0))
-            ws.cell(row=row, column=3, value=item.get('vat', 0))
-            
-            # VAT percentage formula
-            ws.cell(row=row, column=4, value=f'=IF(B{row}=0,0,C{row}/B{row}*100)')
-            
-            ws.cell(row=row, column=5, value=item.get('total', 0))
-            
+        data_start_row = self.config.line_items_start_row
+        for idx, item in enumerate(line_items):
+            row = data_start_row + idx
+
+            ws.cell(row=row, column=self.config.get_line_item_column('description'),
+                   value=item.get('description', ''))
+            ws.cell(row=row, column=self.config.get_line_item_column('amount_excl_vat'),
+                   value=item.get('amount_excl_vat', 0))
+            ws.cell(row=row, column=self.config.get_line_item_column('vat'),
+                   value=item.get('vat', 0))
+
+            # VAT percentage formula using config
+            amount_col = get_column_letter(self.config.get_line_item_column('amount_excl_vat'))
+            vat_col = get_column_letter(self.config.get_line_item_column('vat'))
+            ws.cell(row=row, column=self.config.get_line_item_column('vat_percent'),
+                   value=f'=IF({amount_col}{row}=0,0,{vat_col}{row}/{amount_col}{row}*100)')
+
+            ws.cell(row=row, column=self.config.get_line_item_column('total'),
+                   value=item.get('total', 0))
+
             # Deductible checkbox
-            deductible_cell = ws.cell(row=row, column=6, value=item.get('deductible', True))
-            
+            deductible_cell = ws.cell(row=row, column=self.config.get_line_item_column('deductible'),
+                                    value=item.get('deductible', True))
+
             # Add checkbox-style data validation
-            dv = DataValidation(type="list", formula1='"TRUE,FALSE"', showDropDown=False)
+            boolean_options = self.config.get_boolean_validation_options()
+            show_dropdown = self.config.get_validation_show_dropdown()
+            dv = DataValidation(type="list", formula1=f'"{boolean_options}"', showDropDown=show_dropdown)
             dv.add(deductible_cell)
             ws.add_data_validation(dv)
-            
+
             # Notes column - add note for non-deductible items
             if not item.get('deductible', True):
-                notes_cell = ws.cell(row=row, column=7, value='לא ניתן לניכוי - ראה הסבר בשדה הנמקה')
+                note_text = self.config.get_text_message('non_deductible_note')
+                notes_cell = ws.cell(row=row, column=self.config.get_line_item_column('notes'),
+                                   value=note_text)
                 notes_cell.alignment = Alignment(wrap_text=True, vertical='top')
             else:
-                ws.cell(row=row, column=7, value='')
+                ws.cell(row=row, column=self.config.get_line_item_column('notes'), value='')
             
     def _add_receipt_image(self, ws: Worksheet, receipt: Dict[str, Any], images_dir: Path):
         """Add receipt image to worksheet"""
@@ -231,14 +222,15 @@ class ExcelGenerator:
                 img = XLImage(str(image_path))
                 
                 # Scale image to fit in merged cells
-                img.width = 400
-                img.height = 600
+                img.width, img.height = self.config.get_image_dimensions()
                 
-                # Position image in column H
-                ws.add_image(img, 'H2')
-                
-                # Merge cells for image area
-                ws.merge_cells('H2:K25')
+                # Position image using dynamic config
+                position_cell = self.config.get_image_position_cell()
+                ws.add_image(img, position_cell)
+
+                # Merge cells for image area using dynamic config
+                merge_range = self.config.get_image_merge_range()
+                ws.merge_cells(merge_range)
                 
                 logger.info(f"Added image to worksheet: {image_path.name}")
         except Exception as e:
@@ -246,58 +238,56 @@ class ExcelGenerator:
             
     def _add_validation_and_formatting(self, ws: Worksheet, receipt: Dict[str, Any]):
         """Add conditional formatting and validation"""
-        
-        # Add conditional formatting for VAT validation
-        # Yellow fill for VAT % not 0 or 18
-        vat_yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-        vat_rule = FormulaRule(
-            formula=['AND(ABS(D15)>0.1,ABS(D15-18)>0.1)'],
-            fill=vat_yellow_fill
-        )
-        ws.conditional_formatting.add('D15:D30', vat_rule)
-        
-        # Red fill for non-deductible items (only if not empty)
-        non_deductible_fill = PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid")
-        non_deductible_rule = FormulaRule(
-            formula=['AND(NOT(F15),NOT(ISBLANK(F15)))'],
-            fill=non_deductible_fill
-        )
-        ws.conditional_formatting.add('F15:F115', non_deductible_rule)
-        
-        # Red fill for total mismatch
-        error_red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-        total_rule = FormulaRule(
-            formula=['ABS(B9-C9)>0.01'],
-            fill=error_red_fill
-        )
-        ws.conditional_formatting.add('D9:D9', total_rule)
-        
-        # Add notes for validation errors
+
+        # Add conditional formatting for VAT validation using config
+        vat_range = self.config.get_conditional_formatting_range('vat_validation')
+        vat_formula = self.config.get_conditional_formatting_formula('vat_validation')
+        vat_yellow_fill = PatternFill(start_color=self.config.get_color('vat_validation'),
+                                     end_color=self.config.get_color('vat_validation'),
+                                     fill_type="solid")
+        vat_rule = FormulaRule(formula=[vat_formula], fill=vat_yellow_fill)
+        ws.conditional_formatting.add(vat_range, vat_rule)
+
+        # Red fill for non-deductible items using config
+        non_deductible_range = self.config.get_conditional_formatting_range('non_deductible')
+        non_deductible_formula = self.config.get_conditional_formatting_formula('non_deductible')
+        non_deductible_fill = PatternFill(start_color=self.config.get_color('non_deductible'),
+                                        end_color=self.config.get_color('non_deductible'),
+                                        fill_type="solid")
+        non_deductible_rule = FormulaRule(formula=[non_deductible_formula], fill=non_deductible_fill)
+        ws.conditional_formatting.add(non_deductible_range, non_deductible_rule)
+
+        # Add notes for validation errors using config for cell references
         amounts = receipt.get('amounts', {})
         total_excl = amounts.get('total_excl_vat', 0)
         vat = amounts.get('vat_amount', 0)
         total_incl = amounts.get('total_incl_vat', 0)
-        
+
+        # Get cell references for validation checks
+        total_incl_cell = self.config.get_header_cell_reference('total_incl_vat')
+        verify_cell = self.config.get_cell_reference(
+            self.config.header_start_row + 8,  # total_incl_vat row
+            self.config.header_value_column + 1  # verification column
+        )
+
         # Check total validation
         if abs((total_excl + vat) - total_incl) > 0.01:
-            ws['D9'] = 'שגיאה: סכום לא תואם'
-            ws['D9'].font = Font(color="FF0000")
-            
-        # Check VAT percentage
+            error_msg = self.config.get_text_message('total_mismatch_error')
+            ws[verify_cell] = error_msg
+            ws[verify_cell].font = Font(color=self.config.get_color('error'))
+
+        # Check VAT percentage and add warning to VAT amount cell
         if total_excl > 0:
             vat_pct = (vat / total_excl) * 100
             if abs(vat_pct) > 0.1 and abs(vat_pct - 18) > 0.1:
-                ws['D7'] = f'אזהרה: מע"מ {vat_pct:.1f}%'
-                ws['D7'].font = Font(color="FF9900")
+                vat_note_cell = self.config.get_cell_reference(
+                    self.config.header_start_row + 6,  # vat_amount row
+                    self.config.header_value_column + 2  # notes column
+                )
+                warning_msg = self.config.get_text_message('vat_warning_format', vat_pct=vat_pct)
+                ws[vat_note_cell] = warning_msg
+                ws[vat_note_cell].font = Font(color=self.config.get_color('warning'))
                 
-    def _map_document_type(self, doc_type: str) -> str:
-        """Map English document type to Hebrew"""
-        mapping = {
-            'invoice': 'חשבונית',
-            'receipt': 'קבלה',
-            'invoice+receipt': 'חשבונית+קבלה'
-        }
-        return mapping.get(doc_type, doc_type)
         
     def _load_categories(self) -> List[str]:
         """Load categories from ICOUNT_CATEGORIES.md file"""
@@ -313,7 +303,7 @@ class ExcelGenerator:
             matches = re.findall(pattern, content, re.MULTILINE)
             
             # Filter out table headers
-            skip_items = ['קטגוריה']
+            skip_items = self.config.get_category_skip_items()
             categories = [m.strip() for m in matches if m.strip() not in skip_items]
             
         except Exception as e:
