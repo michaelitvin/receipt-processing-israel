@@ -3,7 +3,7 @@ Extract the following information from this receipt/invoice:
 1. Receipt Information:
    - Receipt/invoice number
    - Vendor name
-   - Vendor ID: Extract the tax ID number (תז/חפ הספק) of the vendor if visible on the receipt. This could be a business registration number, VAT number, or tax ID. If not visible, use empty string.
+   - Vendor ID: Extract the tax ID number (תז/חפ הספק) of the vendor if visible on the receipt. This could be a business registration number, VAT number, or tax ID. If there's a "ע.מ. באיחוד העוסקים" number, use it. If not visible, use empty string.
    - Date (format as YYYY-MM-DD)
    - Document type: Determine if this is an "invoice" (חשבונית), "receipt" (קבלה), or "invoice+receipt" (חשבונית מס קבלה)
    - Currency: Extract the currency of the amounts, must be one of: ILS, USD, or EUR
