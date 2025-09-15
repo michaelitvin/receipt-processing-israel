@@ -15,7 +15,8 @@ The system provides a streamlined approach to processing receipts for Israeli ta
 
 2. **Stage 2: Consolidation** (`receipt_consolidator.py`)
    - Processes reviewed Excel files
-   - Consolidates data into iCount-ready CSV format
+   - Consolidates data into iCount-ready XLS format (true Excel 97-2003) for direct import into iCount accounting software
+   - Copies and organizes receipt files with standardized naming
    - Maintains data integrity and validation
 
 ## ⚡ Key Features
@@ -25,6 +26,7 @@ The system provides a streamlined approach to processing receipts for Israeli ta
 - **Comprehensive YAML Logging**: Detailed logs with timing, metadata, and full prompts
 - **Excel Review Workflow**: Visual review with embedded images and validation formulas
 - **Failed Receipt Handling**: Automatic empty batch files for processing failures
+- **Receipt File Organization**: Automatic copying and renaming of receipt files with standardized naming
 - **Israeli Tax Compliance**: Built-in VAT rules, deductibility, and category mappings
 
 ## 🚀 Quick Start
@@ -99,7 +101,10 @@ python receipt_consolidator.py *.xlsx --output ./consolidated_output
 ```
 
 This generates:
-- iCount-ready CSV import file
+- iCount-ready XLS import file (true Excel 97-2003 format)
+- Organized receipt files folder with standardized naming
+  - Format: `YYYYMMDD_<receipt_id>__<vendor_name>.{extension}`
+  - Files copied from original locations preserving quality
 - Consolidation summary with statistics
 - YAML processing logs
 
@@ -122,6 +127,7 @@ This generates:
 - Data validation dropdowns for categories and document types
 - Conditional formatting for VAT validation errors
 - Hebrew field names and interface
+- True XLS format (Excel 97-2003) using xlwt for iCount compatibility
 
 ### Comprehensive Logging
 - **YAML format** with pipe notation for multiline strings
@@ -129,6 +135,13 @@ This generates:
 - API metadata (model, parameters, response times)
 - Full rendered prompts with category context
 - Processing statistics and error details
+
+### Receipt File Organization
+- Automatic file discovery in user directories (Downloads, Documents, Desktop, etc.)
+- Intelligent search for original receipt files
+- Standardized naming convention: `YYYYMMDD_<receipt_id>__<vendor_name>.{extension}`
+- Preserves original file format and quality
+- Comprehensive copying statistics and error tracking
 
 ## 📊 Project Structure
 
