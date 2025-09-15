@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Receipt Data Consolidator - Stage 2
-Processes reviewed Excel files and generates iCount-ready CSV import files
+Processes reviewed Excel files and generates iCount-ready Excel import files
 """
 
 import argparse
@@ -14,11 +14,16 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import sys
 import openpyxl
+import xlwt
+import shutil
+import os
+import re
 
 # Add shared modules to path
 sys.path.append(str(Path(__file__).parent))
 
 from shared.logger import ReceiptLogger
+from shared.excel_config import get_excel_config
 
 # Load environment variables
 load_dotenv()
@@ -38,10 +43,13 @@ class ReceiptConsolidator:
         """Initialize consolidator"""
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Setup logging
         self.logs_dir = self.output_dir / 'consolidation_logs'
         self.logger = ReceiptLogger(self.logs_dir)
+
+        # Load Excel configuration
+        self.config = get_excel_config()
         
     def process_excel_files(self, excel_files: List[Path]) -> Dict[str, Any]:
         """Process multiple Excel files and generate consolidated output"""
@@ -74,16 +82,22 @@ class ReceiptConsolidator:
                 'errors': processing_errors
             }
             
-        # Generate iCount CSV
-        csv_file = self._generate_icount_csv(all_receipts)
-        
+        # Generate iCount Excel
+        excel_file = self._generate_icount_excel(all_receipts)
+
+        # Copy receipt files to organized structure
+        copy_stats = self._copy_receipt_files(all_receipts)
+
         # Generate summary
         end_time = datetime.now()
-        summary = self._generate_summary(all_receipts, csv_file, processing_errors, start_time, end_time)
-        
+        summary = self._generate_summary(all_receipts, excel_file, processing_errors, start_time, end_time)
+
+        # Add receipt copy statistics to summary
+        summary['receipt_files'] = copy_stats
+
         # Log consolidation stats
         self.logger.log_processing_stats(summary)
-        
+
         return summary
         
     def _extract_receipts_from_excel(self, excel_file: Path) -> List[Dict[str, Any]]:
@@ -122,24 +136,12 @@ class ReceiptConsolidator:
             # Extract header information (rows 1-10)
             receipt_data = {}
             
-            # Map Hebrew headers to field names
-            header_mapping = {
-                'מספר קבלה': 'receipt_number',
-                'ספק': 'vendor',
-                'תז/חפ הספק': 'vendor_id',
-                'תאריך': 'date',
-                'סוג מסמך': 'document_type',
-                'מטבע': 'currency',
-                'סה"כ ללא מע"מ': 'total_excl_vat',
-                'מע"מ': 'vat_amount',
-                'סה"כ כולל מע"מ': 'total_incl_vat',
-                'קטגוריה': 'category',
-                'הסבר והנמקה': 'reasoning',
-                'קישור למקור': 'original_file'
-            }
+            # Get field mappings from configuration
+            header_mapping = self.config.get_field_mappings()
             
-            # Extract header fields (assuming they're in rows 1-14, column A=field, column B=value)
-            for idx, row in df.iloc[:14].iterrows():
+            # Extract header fields using configuration
+            max_header_rows = self.config.header_max_rows
+            for idx, row in df.iloc[:max_header_rows].iterrows():
                 if pd.notna(row.iloc[0]) and pd.notna(row.iloc[1]):
                     field_name = str(row.iloc[0]).strip()
                     field_value = row.iloc[1]
@@ -148,16 +150,16 @@ class ReceiptConsolidator:
                         receipt_data[header_mapping[field_name]] = field_value
                         
             # Validate required fields
-            required_fields = ['receipt_number', 'vendor', 'date', 'total_incl_vat', 'category']
+            required_fields = ['number', 'vendor', 'date', 'total_incl_vat', 'category']
             missing_fields = [f for f in required_fields if not receipt_data.get(f)]
             
             if missing_fields:
                 logger.warning(f"Missing required fields in {sheet_name}: {missing_fields}")
                 return None
                 
-            # Extract line items (starting from row 15)
+            # Extract line items using configuration
             line_items = []
-            line_item_start = 15
+            line_item_start = self.config.line_items_start_row
             
             if len(df) > line_item_start:
                 for idx, row in df.iloc[line_item_start:].iterrows():
@@ -184,38 +186,352 @@ class ReceiptConsolidator:
             logger.error(f"Error parsing worksheet {sheet_name}: {e}")
             return None
             
-    def _generate_icount_csv(self, receipts: List[Dict[str, Any]]) -> Path:
-        """Generate CSV file in iCount import format"""
+    def _generate_icount_excel(self, receipts: List[Dict[str, Any]]) -> Path:
+        """Generate Excel file in iCount import format"""
 
-        # Prepare data for CSV
-        csv_rows = []
+        # Prepare data for Excel
+        data_rows = []
 
         for receipt in receipts:
             # Create one row per receipt (not per line item)
-            csv_rows.append(self._create_csv_row(receipt, None))
+            data_rows.append(self._create_icount_row(receipt, None))
+
+        # Clean string data to remove double quotes, handle NA values, and fix numeric formatting
+        cleaned_data_rows = []
+        for row in data_rows:
+            cleaned_row = {}
+            for key, value in row.items():
+                if pd.isna(value):
+                    cleaned_row[key] = ''
+                elif isinstance(value, str):
+                    # Remove double quotes from strings
+                    cleaned_value = value.replace('"', '')
+
+                    # Convert "NA" values in vendor ID column to empty string
+                    if key == 'תז/חפ הספק' and cleaned_value.upper() == 'NA':
+                        cleaned_row[key] = ''
+                    else:
+                        # Remove trailing .0 from numeric strings
+                        if cleaned_value.endswith('.0'):
+                            cleaned_value = cleaned_value[:-2]
+                        cleaned_row[key] = cleaned_value
+                else:
+                    # Convert all non-string values to string and clean
+                    value_str = str(value)
+                    if value_str.endswith('.0'):
+                        value_str = value_str[:-2]
+                    cleaned_row[key] = value_str
+            cleaned_data_rows.append(cleaned_row)
 
         # Create DataFrame
-        df = pd.DataFrame(csv_rows)
+        df = pd.DataFrame(cleaned_data_rows)
 
-        # Group by vendor name and sort by date
+        # Group by vendor and sort by date
         if not df.empty:
-            # Sort by vendor name first, then by date
-            df = df.sort_values(by=['שם הספק', 'תאריך האסמכתא'], na_position='last')
+            # Sort by vendor id and name first, then by date
+            df = df.sort_values(by=['תז/חפ הספק', 'שם הספק', 'תאריך האסמכתא'], na_position='last')
 
             logger.info(f"Sorted {len(df)} rows by vendor name and date")
 
-        # Generate CSV file
+        # Generate Excel file
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        csv_file = self.output_dir / f'icount_import_{timestamp}.csv'
+        excel_file = self.output_dir / f'icount_import_{timestamp}.xls'
 
-        # Save with UTF-8 encoding for Hebrew support
-        df.to_csv(csv_file, index=False, encoding='utf-8-sig')
-        
-        logger.info(f"Generated iCount CSV: {csv_file}")
-        return csv_file
-        
-    def _create_csv_row(self, receipt: Dict[str, Any], line_item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        """Create a single CSV row for iCount import"""
+        # Save as true XLS format using xlwt
+        self._save_to_xls(df, excel_file)
+
+        logger.info(f"Generated iCount Excel: {excel_file}")
+        return excel_file
+
+    def _format_xls_output(self, worksheet, df: pd.DataFrame, workbook):
+        """Format the XLS worksheet for better readability"""
+
+        # Create formats for xlsxwriter
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#366092',
+            'font_color': 'white',
+            'align': 'center',
+            'valign': 'vcenter'
+        })
+
+        currency_format = workbook.add_format({'num_format': '#,##0.00'})
+        date_format = workbook.add_format({'num_format': 'yyyy-mm-dd'})
+
+        # Format header row
+        for col_num, header in enumerate(df.columns):
+            worksheet.write(0, col_num, header, header_format)
+
+        # Auto-adjust column widths for Hebrew text and data
+        for col_num, column_name in enumerate(df.columns):
+            # Calculate max length, accounting for Hebrew characters
+            max_length = len(str(column_name))
+
+            # Check data in this column
+            for value in df.iloc[:, col_num]:
+                if pd.notna(value):
+                    length = len(str(value))
+                    # Hebrew characters are typically wider, so add some padding
+                    if any('\u0590' <= char <= '\u05FF' for char in str(value)):
+                        length = int(length * 1.2)  # Extra width for Hebrew
+                    max_length = max(max_length, length)
+
+            # Set minimum and maximum column width
+            adjusted_width = min(max(max_length + 2, 8), 50)
+            worksheet.set_column(col_num, col_num, adjusted_width)
+
+        # Set right-to-left reading order for Hebrew
+        worksheet.right_to_left()
+
+        # Format specific columns with data
+        for row_num in range(len(df)):
+            for col_num, header in enumerate(df.columns):
+                value = df.iloc[row_num, col_num]
+
+                # Format amount columns (סכום) as currency
+                if header == 'סכום' and pd.notna(value) and isinstance(value, (int, float)):
+                    worksheet.write(row_num + 1, col_num, value, currency_format)
+
+                # Format date columns
+                elif any(date_word in header for date_word in ['תאריך', 'שולמה']) and pd.notna(value):
+                    worksheet.write(row_num + 1, col_num, value, date_format)
+
+        # Freeze the header row
+        worksheet.freeze_panes(1, 0)
+
+    def _save_to_xls(self, df: pd.DataFrame, excel_file: Path):
+        """Save DataFrame to true XLS format using xlwt"""
+        # Create workbook and worksheet
+        workbook = xlwt.Workbook()
+        worksheet = workbook.add_sheet('iCount Import')
+
+        # Create styles for formatting
+        header_style = xlwt.XFStyle()
+        header_font = xlwt.Font()
+        header_font.bold = True
+        header_font.colour_index = xlwt.Style.colour_map['white']
+        header_pattern = xlwt.Pattern()
+        header_pattern.pattern = xlwt.Pattern.SOLID_PATTERN
+        header_pattern.pattern_fore_colour = xlwt.Style.colour_map['blue']
+        header_style.font = header_font
+        header_style.pattern = header_pattern
+        header_style.alignment.horz = xlwt.Alignment.HORZ_CENTER
+
+        # Write header row with formatting
+        for col_idx, col_name in enumerate(df.columns):
+            worksheet.write(0, col_idx, str(col_name), header_style)
+
+        # Write data rows
+        for row_idx, (_, row) in enumerate(df.iterrows(), 1):
+            for col_idx, value in enumerate(row):
+                if pd.isna(value) or str(value).lower() == 'nan':
+                    worksheet.write(row_idx, col_idx, '')
+                else:
+                    value_str = str(value)
+                    # Remove .0 from end if present
+                    if value_str.endswith('.0'):
+                        value_str = value_str[:-2]
+                    worksheet.write(row_idx, col_idx, value_str)
+
+        # Auto-adjust column widths
+        for col_idx, col_name in enumerate(df.columns):
+            # Calculate max length
+            max_length = len(str(col_name))
+            for value in df.iloc[:, col_idx]:
+                if pd.notna(value):
+                    length = len(str(value))
+                    # Hebrew characters are typically wider
+                    if any('\u0590' <= char <= '\u05FF' for char in str(value)):
+                        length = int(length * 1.2)
+                    max_length = max(max_length, length)
+
+            # Set column width (xlwt uses 256 units per character)
+            adjusted_width = min(max(max_length + 2, 8), 50) * 256
+            worksheet.col(col_idx).width = adjusted_width
+
+        # Save workbook
+        workbook.save(str(excel_file))
+
+    def _sanitize_filename(self, text: str) -> str:
+        """Sanitize text for use in filename"""
+        if not text:
+            return "unknown"
+
+        # Remove or replace invalid filename characters
+        text = re.sub(r'[<>:"/\\|?*]', '_', text)
+        # Remove extra whitespace and Hebrew characters that might cause issues
+        text = re.sub(r'\s+', '_', text.strip())
+        # Remove quotes and other problematic characters
+        text = re.sub(r'["\'\[\](){}]', '', text)
+        # Limit length
+        text = text[:50] if text else "unknown"
+
+        return text
+
+    def _find_receipt_file(self, original_filename: str) -> Optional[Path]:
+        """Find receipt file in original locations"""
+        if not original_filename:
+            return None
+
+        # Look in original receipt directories and common storage locations
+        search_dirs = []
+
+        # Add current directory and common receipt storage paths
+        current_dir = Path.cwd()
+        search_dirs.extend([
+            current_dir,
+            current_dir / "receipts",
+            current_dir / "documents",
+            current_dir / "scans",
+            current_dir.parent,  # Parent directory
+        ])
+
+        # Add user directories
+        home_dir = Path.home()
+        search_dirs.extend([
+            home_dir / "Downloads",
+            home_dir / "Documents",
+            home_dir / "Desktop",
+            home_dir / "Pictures",
+            home_dir / "Documents" / "receipts",
+            home_dir / "Downloads" / "receipts"
+        ])
+
+        # If filename contains a path, try to use that path
+        original_path = Path(original_filename)
+        if len(original_path.parts) > 1:
+            # Try the full path first
+            if original_path.exists():
+                return original_path
+
+            # Try the path relative to current directory
+            relative_path = current_dir / original_filename
+            if relative_path.exists():
+                return relative_path
+
+        # Search for the file in all directories
+        filename_only = Path(original_filename).name
+        for search_dir in search_dirs:
+            if not search_dir.exists():
+                continue
+
+            # Try exact match first
+            exact_file = search_dir / filename_only
+            if exact_file.exists():
+                return exact_file
+
+            # Try case-insensitive search and recursive search
+            try:
+                # Search in current directory
+                for file in search_dir.iterdir():
+                    if file.is_file() and file.name.lower() == filename_only.lower():
+                        return file
+
+                # Search recursively in subdirectories (limited depth)
+                for file in search_dir.rglob(filename_only):
+                    if file.is_file():
+                        return file
+
+                # Case-insensitive recursive search
+                for file in search_dir.rglob("*"):
+                    if file.is_file() and file.name.lower() == filename_only.lower():
+                        return file
+
+            except (PermissionError, OSError):
+                continue
+
+        return None
+
+    def _copy_receipt_files(self, receipts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Copy receipt files to organized folder structure"""
+        # Create receipts folder
+        receipts_folder = self.output_dir / "receipts"
+        receipts_folder.mkdir(exist_ok=True)
+
+        copy_stats = {
+            "total_receipts": len(receipts),
+            "files_found": 0,
+            "files_copied": 0,
+            "files_missing": 0,
+            "copy_errors": []
+        }
+
+        for i, receipt in enumerate(receipts, 1):
+            try:
+                # Extract receipt information
+                original_filename = receipt.get('original_file', '')
+                receipt_date = receipt.get('date', '')
+                vendor_name = receipt.get('vendor', '')
+                receipt_id = receipt.get('number', f"{i:03d}")  # Use actual receipt number from column H
+
+                # Format date
+                date_str = ''
+                if receipt_date:
+                    try:
+                        if isinstance(receipt_date, str):
+                            # Try different date formats
+                            for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%d.%m.%Y']:
+                                try:
+                                    dt = datetime.strptime(receipt_date, fmt)
+                                    date_str = dt.strftime('%Y%m%d')
+                                    break
+                                except ValueError:
+                                    continue
+                        elif hasattr(receipt_date, 'strftime'):
+                            date_str = receipt_date.strftime('%Y%m%d')
+                    except Exception as e:
+                        logger.warning(f"Error formatting date {receipt_date}: {e}")
+
+                if not date_str:
+                    date_str = datetime.now().strftime('%Y%m%d')
+
+                # Find source file
+                if original_filename:
+                    source_file = self._find_receipt_file(original_filename)
+                    if source_file:
+                        copy_stats["files_found"] += 1
+
+                        # Generate new filename
+                        sanitized_vendor = self._sanitize_filename(vendor_name)
+                        sanitized_receipt_id = self._sanitize_filename(str(receipt_id))
+                        file_extension = source_file.suffix
+                        new_filename = f"{date_str}_{sanitized_receipt_id}__{sanitized_vendor}{file_extension}"
+
+                        # Handle duplicate names
+                        target_file = receipts_folder / new_filename
+                        counter = 1
+                        while target_file.exists():
+                            name_part = new_filename.rsplit('.', 1)[0]
+                            ext_part = f".{new_filename.rsplit('.', 1)[1]}" if '.' in new_filename else ''
+                            new_filename = f"{name_part}_{counter}{ext_part}"
+                            target_file = receipts_folder / new_filename
+                            counter += 1
+
+                        # Copy file
+                        shutil.copy2(source_file, target_file)
+                        copy_stats["files_copied"] += 1
+                        logger.info(f"Copied receipt file: {original_filename} -> {new_filename}")
+
+                    else:
+                        copy_stats["files_missing"] += 1
+                        logger.warning(f"Receipt file not found: {original_filename} (Receipt ID: {receipt_id})")
+                else:
+                    copy_stats["files_missing"] += 1
+                    logger.warning(f"No original filename specified for receipt {receipt_id}")
+
+            except Exception as e:
+                copy_stats["copy_errors"].append({
+                    "receipt": receipt_id,
+                    "filename": receipt.get('original_file', ''),
+                    "error": str(e)
+                })
+                logger.error(f"Error copying receipt file for receipt {receipt_id}: {e}")
+
+        logger.info(f"Receipt file copying complete: {copy_stats['files_copied']}/{copy_stats['total_receipts']} files copied")
+        return copy_stats
+
+    def _create_icount_row(self, receipt: Dict[str, Any], line_item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create a single iCount row for import"""
 
         if line_item:
             amount = line_item['total']
@@ -237,11 +553,7 @@ class ReceiptConsolidator:
         # Map document type to iCount format
         doc_type = self._map_document_type_to_icount(receipt.get('document_type', ''))
 
-        # Get original file name from receipt data
-        # The 'original_file' field should contain the filename from Excel cell B12
-        original_file_name = receipt.get('original_file', '')
-
-        # Return all 15 columns required by iCount plus additional column for original file
+        # Return all 15 columns required by iCount
         return {
             'תז/חפ הספק': receipt.get('vendor_id', ''),  # Column A
             'שם הספק': receipt.get('vendor', ''),  # Column B
@@ -250,15 +562,14 @@ class ReceiptConsolidator:
             'מטבע': currency_code,  # Column E
             'שער': '',  # Column F
             'סוג מסמך': doc_type,  # Column G
-            'מספר מסמך': receipt.get('receipt_number', ''),  # Column H
+            'מספר מסמך': receipt.get('number', ''),  # Column H
             'תאריך האסמכתא': date_str,  # Column I
             'תאריך התשלום': date_str,  # Column J
             'ההוצאה שולמה': '1',  # Column K
             'שולמה בתאריך': date_str,  # Column L
             'תאריך דיווח שונה': '',  # Column M
             'לקוח': '',  # Column N
-            'פרויקט': '',  # Column O
-            'קובץ מקור': original_file_name  # Column P - Additional column for original file name
+            'פרויקט': ''  # Column O
         }
         
     def _format_date(self, date_value: Any) -> str:
@@ -384,7 +695,7 @@ class ReceiptConsolidator:
     def _generate_summary(
         self,
         receipts: List[Dict[str, Any]],
-        csv_file: Path,
+        excel_file: Path,
         errors: List[Dict[str, str]],
         start_time: datetime,
         end_time: datetime
@@ -397,7 +708,7 @@ class ReceiptConsolidator:
             'timestamp': datetime.now().isoformat(),
             'total_receipts': len(receipts),
             'total_amount': total_amount,
-            'csv_file': str(csv_file),
+            'excel_file': str(excel_file),
             'processing_time_seconds': (end_time - start_time).total_seconds(),
             'errors': errors
         }
@@ -464,8 +775,8 @@ def main():
     print(f"Total amount: ₪{summary.get('total_amount', 0):,.2f}")
     print(f"Processing time: {summary.get('processing_time_seconds', 0):.1f} seconds")
     
-    if summary.get('csv_file'):
-        print(f"\nGenerated file: {summary['csv_file']}")
+    if summary.get('excel_file'):
+        print(f"\nGenerated Excel file: {summary['excel_file']}")
         
     if summary.get('category_breakdown'):
         print("\nCategory breakdown:")
@@ -476,8 +787,21 @@ def main():
         print(f"\nErrors encountered: {len(summary['errors'])}")
         for error in summary['errors']:
             print(f"  - {error['file']}: {error['error']}")
-            
+
+    # Print receipt file copying statistics
+    if summary.get('receipt_files'):
+        receipt_stats = summary['receipt_files']
+        print(f"\nReceipt files:")
+        print(f"  Files copied: {receipt_stats['files_copied']}/{receipt_stats['total_receipts']}")
+        print(f"  Files found: {receipt_stats['files_found']}")
+        print(f"  Files missing: {receipt_stats['files_missing']}")
+
+        if receipt_stats['copy_errors']:
+            print(f"  Copy errors: {len(receipt_stats['copy_errors'])}")
+
     print(f"\nOutput directory: {output_dir}")
+    if summary.get('receipt_files', {}).get('files_copied', 0) > 0:
+        print(f"Receipt files directory: {output_dir / 'receipts'}")
     
     # Save summary to JSON
     summary_path = output_dir / f'consolidation_summary_{timestamp}.json'
