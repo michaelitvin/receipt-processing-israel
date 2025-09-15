@@ -1,0 +1,19 @@
+[project]
+name = "receipt-processing-israel"
+version = "0.1.0"
+description = "Two-stage receipt processing system for Israeli tax reporting using OpenAI API"
+requires-python = ">=3.13"
+dependencies = [
+    "aiofiles>=23.0.0",
+    "jinja2>=3.0.0",
+    "openai>=1.0.0",
+    "openpyxl>=3.1.0",
+    "pandas>=2.0.0",
+    "pdf2image>=1.16.3",
+    "pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.0",
+    "xlrd>=2.0.0",
+    "xlsxwriter>=3.2.0",
+    "xlwt>=1.3.0",
+]
