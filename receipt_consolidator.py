@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 import sys
+import openpyxl
 
 # Add shared modules to path
 sys.path.append(str(Path(__file__).parent))
@@ -88,18 +89,31 @@ class ReceiptConsolidator:
     def _extract_receipts_from_excel(self, excel_file: Path) -> List[Dict[str, Any]]:
         """Extract receipt data from a single Excel file"""
         receipts = []
-        
-        # Read all worksheets
-        excel_data = pd.read_excel(excel_file, sheet_name=None, header=None)
-        
-        for sheet_name, df in excel_data.items():
-            try:
-                receipt = self._parse_worksheet(df, sheet_name, excel_file)
-                if receipt:
-                    receipts.append(receipt)
-            except Exception as e:
-                logger.error(f"Error parsing worksheet {sheet_name} in {excel_file}: {e}")
-                
+
+        # Read using openpyxl with data_only=True to get calculated formula values
+        try:
+            workbook = openpyxl.load_workbook(excel_file, data_only=True)
+
+            for sheet_name in workbook.sheetnames:
+                worksheet = workbook[sheet_name]
+
+                # Convert worksheet to DataFrame
+                data = []
+                for row in worksheet.iter_rows(values_only=True):
+                    data.append(row)
+
+                df = pd.DataFrame(data)
+
+                try:
+                    receipt = self._parse_worksheet(df, sheet_name, excel_file)
+                    if receipt:
+                        receipts.append(receipt)
+                except Exception as e:
+                    logger.error(f"Error parsing worksheet {sheet_name} in {excel_file}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error reading Excel file {excel_file}: {e}")
+
         return receipts
         
     def _parse_worksheet(self, df: pd.DataFrame, sheet_name: str, excel_file: Path) -> Optional[Dict[str, Any]]:
@@ -112,17 +126,20 @@ class ReceiptConsolidator:
             header_mapping = {
                 'מספר קבלה': 'receipt_number',
                 'ספק': 'vendor',
-                'תאריך': 'date', 
+                'תז/חפ הספק': 'vendor_id',
+                'תאריך': 'date',
                 'סוג מסמך': 'document_type',
                 'מטבע': 'currency',
                 'סה"כ ללא מע"מ': 'total_excl_vat',
                 'מע"מ': 'vat_amount',
                 'סה"כ כולל מע"מ': 'total_incl_vat',
-                'קטגוריה': 'category'
+                'קטגוריה': 'category',
+                'הסבר והנמקה': 'reasoning',
+                'קישור למקור': 'original_file'
             }
             
-            # Extract header fields (assuming they're in rows 1-10, column A=field, column B=value)
-            for idx, row in df.iloc[:10].iterrows():
+            # Extract header fields (assuming they're in rows 1-14, column A=field, column B=value)
+            for idx, row in df.iloc[:14].iterrows():
                 if pd.notna(row.iloc[0]) and pd.notna(row.iloc[1]):
                     field_name = str(row.iloc[0]).strip()
                     field_value = row.iloc[1]
@@ -138,9 +155,9 @@ class ReceiptConsolidator:
                 logger.warning(f"Missing required fields in {sheet_name}: {missing_fields}")
                 return None
                 
-            # Extract line items (starting from row 14)
+            # Extract line items (starting from row 15)
             line_items = []
-            line_item_start = 14
+            line_item_start = 15
             
             if len(df) > line_item_start:
                 for idx, row in df.iloc[line_item_start:].iterrows():
@@ -174,17 +191,8 @@ class ReceiptConsolidator:
         csv_rows = []
 
         for receipt in receipts:
-            # Handle line items - create separate row for each line item
-            line_items = receipt.get('line_items', [])
-
-            if not line_items:
-                # If no line items, create single row with full amount
-                csv_rows.append(self._create_csv_row(receipt, None))
-            else:
-                # Create row for each line item
-                for line_item in line_items:
-                    if line_item.get('deductible', True):  # Only include deductible items
-                        csv_rows.append(self._create_csv_row(receipt, line_item))
+            # Create one row per receipt (not per line item)
+            csv_rows.append(self._create_csv_row(receipt, None))
 
         # Create DataFrame
         df = pd.DataFrame(csv_rows)
@@ -229,16 +237,13 @@ class ReceiptConsolidator:
         # Map document type to iCount format
         doc_type = self._map_document_type_to_icount(receipt.get('document_type', ''))
 
-        # Get original file path from receipt data
-        original_file_path = ''
-        if 'receipt_info' in receipt and isinstance(receipt['receipt_info'], dict):
-            original_file_path = receipt['receipt_info'].get('original_file', '')
-        elif 'original_file' in receipt:
-            original_file_path = receipt.get('original_file', '')
+        # Get original file name from receipt data
+        # The 'original_file' field should contain the filename from Excel cell B12
+        original_file_name = receipt.get('original_file', '')
 
         # Return all 15 columns required by iCount plus additional column for original file
         return {
-            'תז/חפ הספק': '',  # Column A
+            'תז/חפ הספק': receipt.get('vendor_id', ''),  # Column A
             'שם הספק': receipt.get('vendor', ''),  # Column B
             'שם סוג הוצאה': category,  # Column C
             'סכום': amount,  # Column D
@@ -253,7 +258,7 @@ class ReceiptConsolidator:
             'תאריך דיווח שונה': '',  # Column M
             'לקוח': '',  # Column N
             'פרויקט': '',  # Column O
-            'קובץ מקור': original_file_path  # Column P - Additional column for original file path
+            'קובץ מקור': original_file_name  # Column P - Additional column for original file name
         }
         
     def _format_date(self, date_value: Any) -> str:
