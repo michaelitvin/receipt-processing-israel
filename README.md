@@ -10,12 +10,12 @@ The system provides a streamlined approach to processing receipts for Israeli ta
    - Extracts structured data from receipt images and PDFs
    - Uses OpenAI's Responses API with custom Jinja2 templates
    - Parallel processing with configurable concurrency
-   - Generates Excel files with embedded images for review
+   - Generates XLSX files with embedded images for review
    - Creates failed receipt batches for manual entry
 
 2. **Stage 2: Consolidation** (`receipt_consolidator.py`)
-   - Processes reviewed Excel files
-   - Consolidates data into iCount-ready XLS format (true Excel 97-2003) for direct import into iCount accounting software
+   - Processes reviewed XLSX files from Stage 1
+   - Consolidates data into iCount-ready XLS format (Excel 97-2003) for direct import
    - Copies and organizes receipt files with standardized naming
    - Maintains data integrity and validation
 
@@ -28,6 +28,44 @@ The system provides a streamlined approach to processing receipts for Israeli ta
 - **Failed Receipt Handling**: Automatic empty batch files for processing failures
 - **Receipt File Organization**: Automatic copying and renaming of receipt files with standardized naming
 - **Israeli Tax Compliance**: Built-in VAT rules, deductibility, and category mappings
+
+## 📊 Excel Worksheet Layout
+
+Each extracted receipt creates an XLSX worksheet with this layout (Stage 1 extraction):
+
+```
+‏    A              B              C           D           |  H     I     J     K
+‏ 1  שם שדה        ערך            אימות        הערות       |
+‏ 2  מספר קבלה  :: 12345                                   |  ┌─────────────────┐
+‏ 3  ספק        :: חברת בדיקה                              |  │                 │
+‏ 4  תז/חפ הספק :: 123456789                               |  │                 │
+‏ 5  תאריך      :: 2024-01-15                              |  │                 │
+‏ 6  סוג מסמך   :: חשבונית                                 |  │   Receipt Image │
+‏ 7  מטבע       :: ₪                                       |  │                 │
+‏ 8  סה"כ ללא מע"מ :: 100.00      85.47                    |  │   (Embedded)    │
+‏ 9  מע"מ       :: 17.00         17.00                     |  │                 │
+‏10  סה"כ כולל מע"מ :: 117.00     102.47                   |  │                 │
+‏11  קטגוריה    :: תוכנות ומנויים                          |  │                 │
+‏12  הסבר והנמקה :: Software subscription for...           |  │                 │
+‏13  קישור למקור :: [link]                                 |  │                 │
+‏...                                                       |  │                 │
+‏18                                                        |  │                 │
+‏19                                                        |  │                 │
+‏20  תיאור      :: סה"כ ללא מע"מ   מע"מ    אחוז מע"מ       |  └─────────────────┘
+‏21  Office 365 :: 85.47         14.53   18.0%         ☑️
+‏22  Setup Fee  :: 14.53         2.47    18.0%         ☐
+‏23
+```
+
+**Key Layout Features:**
+- **Columns A-D**: Header information (field names, values, verification, notes)
+- **Columns H-K**: Receipt image (merged cells H2:K25)
+- **Row 20**: Line item headers
+- **Row 21+**: Individual line items with deductible checkboxes
+
+**Output Formats:**
+- **Stage 1 (Extraction)**: XLSX format with embedded images for review
+- **Stage 2 (Consolidation)**: XLS format optimized for iCount import
 
 ## 🚀 Quick Start
 
@@ -106,7 +144,7 @@ This generates:
 ## 📋 Technical Details
 
 ### OpenAI Integration
-- Uses **Responses API** with gpt-4o-mini model
+- Uses **Responses API** with gpt-5-mini model
 - Direct PDF and image processing support
 - Structured JSON output with strict schema validation
 - Full Israeli tax category context in prompts
