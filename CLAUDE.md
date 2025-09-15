@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a two-stage receipt processing system for Israeli tax reporting that uses OpenAI's API to extract structured data from receipts and prepare it for import into iCount accounting software.
 
 **Stage 1**: `receipt_extractor.py` - Extracts data from receipt images/PDFs using OpenAI's Responses API, generates Excel files with embedded images for review
-**Stage 2**: `receipt_consolidator.py` - Processes reviewed Excel files and consolidates them into iCount-ready CSV format
+**Stage 2**: `receipt_consolidator.py` - Processes reviewed Excel files and consolidates them into iCount-ready XLS format (true Excel 97-2003) with organized receipt files
 
 ## Development Commands
 
@@ -54,7 +54,8 @@ python receipt_consolidator.py *.xlsx --output ./consolidated
 1. **Image/PDF Processing** (`shared/image_handler.py`): Converts receipts to base64 for API submission
 2. **OpenAI Integration** (`shared/openai_client.py`): Uses Responses API with structured JSON output, includes Jinja2 template rendering
 3. **Excel Generation** (`shared/excel_generator.py`): Creates Excel files with embedded images, data validation, and conditional formatting
-4. **Logging** (`shared/logger.py`): Comprehensive YAML logging with full prompts and API metadata
+4. **Receipt File Organization** (in `receipt_consolidator.py`): Copies receipt files from original locations with standardized naming: `YYYYMMDD_<receipt_id>__<vendor_name>.{extension}`
+5. **Logging** (`shared/logger.py`): Comprehensive YAML logging with full prompts and API metadata
 
 ### Prompt System
 - Templates in `prompts/`: Uses Jinja2 for maintainable prompts
@@ -87,3 +88,5 @@ The system handles Israeli-specific tax requirements:
 - Logs are stored in `llm_logs/` directories with YAML format
 - Failed receipts automatically generate empty Excel batches for manual entry
 - All processing is asynchronous with configurable concurrency
+- Consolidation generates true XLS format (Excel 97-2003) using xlwt library for iCount compatibility
+- Receipt files are automatically organized with standardized naming in the consolidation output
