@@ -130,13 +130,20 @@ class ExcelGenerator:
         pass
 ```
 
-**Key Excel Features**:
+**Key Excel Features (Stage 1 - XLSX)**:
 - Image embedding using `openpyxl.drawing.image.Image`
 - Data validation for dropdowns (categories, document types)
 - Conditional formatting for validation errors (red/yellow cells)
 - Formulas for VAT percentage and total verification
 - Hyperlinks to original receipt files
 - Notes column for validation messages
+
+**Key Export Features (Stage 2 - XLS)**:
+- XLS format generation using `xlwt` library for iCount compatibility
+- Data cleaning: double quote removal and NA value handling
+- Hebrew RTL (right-to-left) text support
+- Auto-adjusted column widths with Hebrew text support
+- Receipt file copying and organization
 
 **Excel-Only Calculated Fields**:
 - VAT % column: `=(VAT/Amount_excl_VAT)*100` (formula, not stored in JSON)
@@ -218,11 +225,20 @@ class ExcelReader:
 
 ```python
 class iCountExporter:
-    def create_icount_excel(self, items: List[LineItem]) -> Workbook:
-        # Create Excel with Hebrew headers (from PRD)
-        # Map document types: חשבונית→invoice, etc.
-        # Add hyperlinks to original receipts
-        # Apply iCount formatting requirements
+    def _save_to_xls(self, df: pd.DataFrame, excel_file: Path):
+        # Create XLS workbook using xlwt
+        # Apply header formatting with blue background and white text
+        # Auto-adjust column widths for Hebrew content
+        # Clean string data: remove quotes, handle NA values
+        # Write 15-column iCount format with Hebrew headers
+        pass
+
+    def _generate_icount_excel(self, receipts: List[Dict]) -> Path:
+        # Create iCount-compatible data rows
+        # Clean string data and handle special values
+        # Sort by vendor and date
+        # Generate timestamped XLS file
+        # Copy receipt files to organized structure
         pass
 ```
 
@@ -237,8 +253,8 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5-mini
 
 # Processing Configuration  
-MAX_CONCURRENT_REQUESTS=20
-RECEIPTS_PER_FILE=10
+MAX_CONCURRENT_REQUESTS=100
+RECEIPTS_PER_FILE=100
 
 # Output Configuration
 OUTPUT_DIR=./receipts_extracted
@@ -253,8 +269,8 @@ python receipt_extractor.py [receipts_dir] [options]
 
 Options:
   --output DIR          Output directory (default: ./receipts_extracted)
-  --concurrent INT      Max concurrent API requests (default: 5) 
-  --receipts-per-file INT  Receipts per Excel file (default: 10)
+  --concurrent INT      Max concurrent API requests (default: 100) 
+  --receipts-per-file INT  Receipts per Excel file (default: 100)
   --api-key KEY         OpenAI API key (overrides .env)
 ```
 
@@ -277,7 +293,7 @@ Options:
 # Concurrent receipt processing
 async def process_receipts_parallel(
     receipts: List[Path], 
-    max_concurrent: int = 5
+    max_concurrent: int = 100
 ) -> List[ProcessedReceipt]:
     
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -315,8 +331,8 @@ receipts/
 ### Stage 1 Output
 ```
 receipts_extracted/
-├── receipts_batch_001.xlsx    # Receipts 1-10
-├── receipts_batch_002.xlsx    # Receipts 11-20  
+├── receipts_batch_001.xlsx    # Receipts 1-100
+├── receipts_batch_002.xlsx    # Receipts 101-200  
 ├── processing_summary.json
 └── llm_logs/
     ├── llm_call_receipt_001_20250911_143022.json
@@ -325,7 +341,7 @@ receipts_extracted/
 
 ### Stage 2 Output
 ```
-consolidated_receipts_20250911.xlsx   # iCount-ready format
+consolidated_receipts_20250911.xls    # iCount-ready XLS format
 consolidation_report.json             # Processing summary
 ```
 
@@ -404,11 +420,16 @@ ERROR_CHECK_FORMULA = "=IF(E{row}<>D{row},\"❌ Total mismatch\",\"\")"
 ```txt
 openai>=1.0.0
 openpyxl>=3.1.0
+xlwt>=1.3.0
+xlsxwriter>=3.2.0
 Pillow>=10.0.0
 python-dotenv>=1.0.0
 pdf2image>=1.16.3
 aiofiles>=23.0.0
-asyncio-throttle>=1.0.0
+pandas>=2.0.0
+xlrd>=2.0.0
+PyYAML>=6.0.0
+Jinja2>=3.0.0
 ```
 
 ### External Dependencies

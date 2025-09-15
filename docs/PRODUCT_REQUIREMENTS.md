@@ -40,7 +40,7 @@ User-friendly receipt processing system that extracts data from receipts and gen
 - OpenAI API credentials
 
 **Outputs**:
-- Batch Excel files (max configurable amount of receipts per file - default 10)
+- Batch Excel files (max configurable amount of receipts per file - default 100)
 - Processing logs and error reports
 - Excel worksheets with embedded receipt image, extracted data, classification results, and formulas
 
@@ -51,13 +51,15 @@ User-friendly receipt processing system that extracts data from receipts and gen
 **Component**: `receipt_consolidator.py`
 
 **Inputs**:
-- Directory containing edited batch Excel files
+- Directory containing edited batch XLSX files
 - Configuration for output format
 
 **Outputs**:
-- Single consolidated Excel file
+- Single consolidated XLS file with professional formatting
 - Only "deductible" line items included
-- Links to original receipt images/pdfs
+- Clean data: double quotes removed, NA values handled
+- Hebrew RTL support with auto-adjusted column widths
+- Organized receipt file copies with descriptive names
 - Ready for import into iCount accounting system
 
 ---
@@ -67,29 +69,32 @@ User-friendly receipt processing system that extracts data from receipts and gen
 ### Layout Specifications
 
 **Layout**:
-- **Left Side**: Data fields starting from column A
-- **Right Side**: Receipt image (large, merged cells starting from column H)
+- **Left Side**: Data fields in columns A-D (field names, values, verification, notes)
+- **Right Side**: Receipt image (merged cells H2:K25)
 
 ### Header Information Section
-Location: Columns A-D, Rows 1-12
+Location: Columns A-D, Rows 2-19
 
-| שם שדה | ערך | אימות | הערות |
-|--------|------|-------|-------|
+| שם שדה (A) | ערך (B) | אימות (C) | הערות (D) |
+|------------|---------|-----------|-----------|
 | מספר קבלה | [Extracted] | | |
 | ספק | [Extracted] | | |
+| תז/חפ הספק | [Extracted] | | |
 | תאריך | [Extracted] | | |
 | סוג מסמך | [Dropdown: חשבונית/קבלה/חשבונית+קבלה] | | |
+| מטבע | [Extracted] | | |
 | סה"כ ללא מע"מ | [Extracted] | [Calculated] | |
 | מע"מ | [Extracted] | [Calculated] | |
 | סה"כ כולל מע"מ | [Extracted] | [Calculated] | |
 | קטגוריה | [Dropdown] | | |
+| הסבר והנמקה | [AI reasoning] | | |
 | קישור למקור | [Link to original file] | | |
 
 ### Line Items Table
-Location: Columns A-G, Starting Row 14
+Location: Columns A-G, Starting Row 21 (Headers at Row 20)
 
-| תיאור | סה"כ ללא מע"מ | מע"מ | אחוז מע"מ | סה"כ כולל מע"מ | ניתן לניכוי | הערות |
-|-------|---------------|------|-----------|----------------|-----------|-------|
+| תיאור (A) | סה"כ ללא מע"מ (B) | מע"מ (C) | אחוז מע"מ (D) | סה"כ כולל מע"מ (E) | ניתן לניכוי (F) | הערות (G) |
+|-----------|-------------------|----------|---------------|---------------------|----------------|-----------|
 | [Item 1] | [Amount] | [VAT] | `=VAT/Total*100` | [Total] | ☑️ | |
 | [Item 2] | [Amount] | [VAT] | `=VAT/Total*100` | [Total] | ☐ | |
 
@@ -146,9 +151,9 @@ Location: Columns A-G, Starting Row 14
 ### Batch Files Structure
 ```
 receipts_extracted/
-├── receipts_batch_001.xlsx (receipts 1-10)
-├── receipts_batch_002.xlsx (receipts 11-20)
-└── receipts_batch_003.xlsx (receipts 21-30)
+├── receipts_batch_001.xlsx (receipts 1-100)
+├── receipts_batch_002.xlsx (receipts 101-200)
+└── receipts_batch_003.xlsx (receipts 201-300)
 ```
 
 ### Worksheet Naming Convention
@@ -193,7 +198,8 @@ receipts_extracted/
 4. **Update Classifications**: Adjust categories and deductible status
 5. **Save In-Place**: Standard Save operation
 6. **Consolidate**: `python receipt_consolidator.py ./receipts_extracted`
-7. **Import to iCount**: Import consolidated Excel file
+7. **Receipt Organization**: Original receipt files automatically copied and organized
+8. **Import to iCount**: Import consolidated XLS file
 
 ### Editing Experience
 - Visual comparison between receipt image and extracted data
@@ -206,9 +212,17 @@ receipts_extracted/
 
 ## Output Specifications
 
-### Consolidated Excel for iCount
+### Consolidated XLS for iCount
+
+**Note**: Stage 1 (extraction) generates XLSX files for review, Stage 2 (consolidation) outputs XLS format for iCount compatibility.
 
 **iCount Import Format**:
+
+**Data Cleaning Features**:
+- Double quotes (") automatically removed from all string fields
+- "NA" values in vendor ID column converted to empty cells (case-insensitive)
+- Trailing ".0" removed from numeric strings for cleaner display
+- Hebrew RTL text support with auto-adjusted column widths
 
 Documentation: https://help.icount.co.il/expenses/import-from-excel/
 Sample file: `iCount-Expenses-sample.xls` in the repo
@@ -267,10 +281,18 @@ Sample file: `iCount-Expenses-sample.xls` in the repo
 - Sum validation across line items
 - VAT percentage verification
 
+### Receipt File Organization
+- Original receipt files automatically located and copied during consolidation
+- Files renamed with descriptive format: `YYYYMMDD_ReceiptID__VendorName.ext`
+- Organized in `receipts/` subdirectory within consolidation output
+- Duplicate name handling with automatic numbering
+- Comprehensive copying statistics and error reporting
+
 ### Error Handling
 - Failed extractions logged separately
 - Malformed data warnings
 - Processing statistics summary
+- Receipt file copying errors tracked and reported
 
 ---
 

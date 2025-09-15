@@ -67,7 +67,7 @@ uv run python receipt_consolidator.py *.xlsx --output ./consolidated
 
 ### Configuration
 - `.env` file for API keys and processing parameters
-- Default model: gpt-4o-mini (configurable)
+- Default model: gpt-5-mini (configurable)
 - Concurrent request limits and batch sizes
 
 ## Israeli Tax Context
