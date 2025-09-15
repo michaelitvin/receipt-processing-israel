@@ -34,12 +34,13 @@ The system provides a streamlined approach to processing receipts for Israeli ta
 ### Prerequisites
 
 1. **Python 3.13+** installed
-2. **OpenAI API Key** from [OpenAI Platform](https://platform.openai.com/)
-3. **Poppler** for PDF support:
+2. **UV package manager**: Install with `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `pip install uv`)
+3. **OpenAI API Key** from [OpenAI Platform](https://platform.openai.com/)
+4. **Poppler** for PDF support:
    ```bash
    # Ubuntu/Debian
    sudo apt-get install poppler-utils
-   
+
    # macOS
    brew install poppler
    ```
@@ -47,18 +48,12 @@ The system provides a streamlined approach to processing receipts for Israeli ta
 ### Installation
 
 1. Clone the repository
-2. Create a virtual environment:
+2. Install dependencies (UV automatically manages the virtual environment):
    ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate
+   uv sync
    ```
 
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Copy `.env.example` to `.env` and configure your API key:
+3. Copy `.env.example` to `.env` and configure your API key:
    ```bash
    cp .env.example .env
    ```
@@ -75,13 +70,13 @@ The system provides a streamlined approach to processing receipts for Israeli ta
 
 ```bash
 # Basic usage
-python receipt_extractor.py /path/to/receipts/folder
+uv run python receipt_extractor.py /path/to/receipts/folder
 
 # With custom concurrency and batch size
-python receipt_extractor.py /path/to/receipts/folder --concurrent 3 --receipts-per-file 5
+uv run python receipt_extractor.py /path/to/receipts/folder --concurrent 3 --receipts-per-file 5
 
 # With custom output directory
-python receipt_extractor.py /path/to/receipts/folder --output ./my_extractions
+uv run python receipt_extractor.py /path/to/receipts/folder --output ./my_extractions
 ```
 
 This creates:
@@ -94,10 +89,10 @@ This creates:
 
 ```bash
 # Process reviewed Excel files
-python receipt_consolidator.py path/to/receipts_batch_001.xlsx path/to/receipts_batch_002.xlsx
+uv run python receipt_consolidator.py path/to/receipts_batch_001.xlsx path/to/receipts_batch_002.xlsx
 
 # With custom output directory
-python receipt_consolidator.py *.xlsx --output ./consolidated_output
+uv run python receipt_consolidator.py *.xlsx --output ./consolidated_output
 ```
 
 This generates:

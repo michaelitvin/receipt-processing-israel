@@ -13,12 +13,8 @@ This is a two-stage receipt processing system for Israeli tax reporting that use
 
 ### Environment Setup
 ```bash
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (automatically creates/manages virtual environment)
+uv sync
 
 # Configure API key
 cp .env.example .env
@@ -29,22 +25,23 @@ cp .env.example .env
 
 **Stage 1 - Extract receipts:**
 ```bash
-python receipt_extractor.py /path/to/receipts/folder
+uv run python receipt_extractor.py /path/to/receipts/folder
 
 # With options:
-python receipt_extractor.py /path/to/receipts --concurrent 3 --receipts-per-file 5 --output ./output
+uv run python receipt_extractor.py /path/to/receipts --concurrent 3 --receipts-per-file 5 --output ./output
 ```
 
 **Stage 2 - Consolidate to iCount format:**
 ```bash
-python receipt_consolidator.py path/to/excel1.xlsx path/to/excel2.xlsx
+uv run python receipt_consolidator.py path/to/excel1.xlsx path/to/excel2.xlsx
 
 # With custom output:
-python receipt_consolidator.py *.xlsx --output ./consolidated
+uv run python receipt_consolidator.py *.xlsx --output ./consolidated
 ```
 
 ### Dependencies
 - Python 3.13+
+- UV package manager: `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `pip install uv`)
 - Poppler (for PDF processing): `brew install poppler` (macOS) or `sudo apt-get install poppler-utils` (Linux)
 - OpenAI API key from https://platform.openai.com/
 
