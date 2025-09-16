@@ -286,16 +286,8 @@ For detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
 
 ## 📊 Performance
 
-Typical processing times for 10 receipts:
-- **Sequential**: ~2-3 minutes
-- **Concurrent (5)**: ~45-60 seconds
-- **Concurrent (10)**: ~30-45 seconds
-
-Processing time depends on:
-- Receipt complexity
-- Image/PDF size
-- OpenAI API response times
-- Network latency
+**Processing Speed:** 100 receipts: ~2-3 minutes (concurrent processing)
+**Cost:** ~$0.50 per 100 receipts using gpt-5-mini
 
 ---
 
