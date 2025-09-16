@@ -35,25 +35,25 @@ Each extracted receipt creates an XLSX worksheet with this layout (Stage 1 extra
 
 ```
     A              B              C           D           |  H     I     J     K
- 1  שם שדה        ערך            אימות        הערות       |
- 2  מספר קבלה     12345                                  |  ┌─────────────────┐
- 3  ספק           חברת בדיקה                             |  │                 │
- 4  תז/חפ הספק    123456789                              |  │                 │
- 5  תאריך         2024-01-15                             |  │                 │
- 6  סוג מסמך      חשבונית                                |  │   Receipt Image │
- 7  מטבע          ₪                                      |  │                 │
- 8  סה"כ ללא מע"מ  100.00         85.47                   |  │   (Embedded)    │
- 9  מע"מ          17.00          17.00                   |  │                 │
-10  סה"כ כולל מע"מ 117.00         102.47                  |  │                 │
-11  קטגוריה      תוכנות ומנויים                         |  │                 │
-12  הסבר והנמקה   Software subscription for...          |  │                 │
-13  קישור למקור   [link]                                 |  │                 │
-...                                                     |  │                 │
-18                                                      |  │                 │
-19                                                      |  │                 │
-20  תיאור         סה"כ ללא מע"מ   מע"מ    אחוז מע"מ     |  └─────────────────┘
-21  Office 365    85.47          14.53   18.0%         ☑️
-22  Setup Fee     14.53          2.47    18.0%         ☐
+ 1  Field Name     Value          Validation  Notes       |
+ 2  Receipt #      12345                                  |  ┌─────────────────┐
+ 3  Vendor         Test Company                           |  │                 │
+ 4  Vendor ID      123456789                              |  │                 │
+ 5  Date           2024-01-15                             |  │                 │
+ 6  Doc Type       Invoice                                |  │   Receipt Image │
+ 7  Currency       ILS                                    |  │                 │
+ 8  Total ex VAT   100.00         85.47                   |  │   (Embedded)    │
+ 9  VAT            17.00          17.00                   |  │                 │
+10  Total inc VAT  117.00         102.47                  |  │                 │
+11  Category       Software                               |  │                 │
+12  Reasoning      Software subscription for...           |  │                 │
+13  Source Link    [link]                                 |  │                 │
+...                                                       |  │                 │
+18                                                        |  │                 │
+19                                                        |  │                 │
+20  Description    Total ex VAT   VAT     VAT %           |  └─────────────────┘
+21  Office 365     85.47          14.53   18.0%         ☑️
+22  Setup Fee      14.53          2.47    18.0%         ☐
 23
 ```
 
@@ -62,6 +62,15 @@ Each extracted receipt creates an XLSX worksheet with this layout (Stage 1 extra
 - **Columns H-K**: Receipt image (merged cells H2:K25)
 - **Row 20**: Line item headers
 - **Row 21+**: Individual line items with deductible checkboxes
+
+**Hebrew Field Names** (actual Excel uses these):
+- Field Name = שם שדה
+- Receipt # = מספר קבלה
+- Vendor = ספק
+- Vendor ID = תז/חפ הספק
+- Total ex VAT = סה"כ ללא מע"מ
+- Category = קטגוריה
+- Description = תיאור
 
 **Output Formats:**
 - **Stage 1 (Extraction)**: XLSX format with embedded images for review
