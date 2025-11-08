@@ -39,10 +39,18 @@ logger = logging.getLogger(__name__)
 class ReceiptConsolidator:
     """Consolidates reviewed Excel files into iCount import format"""
     
-    def __init__(self, output_dir: Path):
-        """Initialize consolidator"""
+    def __init__(self, output_dir: Path, receipts_source_dir: Optional[Path] = None):
+        """Initialize consolidator
+
+        Args:
+            output_dir: Directory for consolidated output files
+            receipts_source_dir: Optional directory to search for original receipt files
+        """
         self.output_dir = output_dir
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Store receipts source directory
+        self.receipts_source_dir = receipts_source_dir
 
         # Setup logging
         self.logs_dir = self.output_dir / 'consolidation_logs'
@@ -119,7 +127,7 @@ class ReceiptConsolidator:
                 df = pd.DataFrame(data)
 
                 try:
-                    receipt = self._parse_worksheet(df, sheet_name, excel_file)
+                    receipt = self._parse_worksheet(df, worksheet, sheet_name, excel_file)
                     if receipt:
                         receipts.append(receipt)
                 except Exception as e:
@@ -130,24 +138,42 @@ class ReceiptConsolidator:
 
         return receipts
         
-    def _parse_worksheet(self, df: pd.DataFrame, sheet_name: str, excel_file: Path) -> Optional[Dict[str, Any]]:
+    def _parse_worksheet(self, df: pd.DataFrame, worksheet: Any, sheet_name: str, excel_file: Path) -> Optional[Dict[str, Any]]:
         """Parse a single worksheet into receipt data"""
         try:
             # Extract header information (rows 1-10)
             receipt_data = {}
-            
+
             # Get field mappings from configuration
             header_mapping = self.config.get_field_mappings()
-            
+
             # Extract header fields using configuration
             max_header_rows = self.config.header_max_rows
             for idx, row in df.iloc[:max_header_rows].iterrows():
                 if pd.notna(row.iloc[0]) and pd.notna(row.iloc[1]):
                     field_name = str(row.iloc[0]).strip()
                     field_value = row.iloc[1]
-                    
+
                     if field_name in header_mapping:
-                        receipt_data[header_mapping[field_name]] = field_value
+                        mapped_field = header_mapping[field_name]
+                        receipt_data[mapped_field] = field_value
+
+                        # For original_file field, try to extract full path from hyperlink
+                        if mapped_field == 'original_file':
+                            try:
+                                # Cell is in row idx+1 (1-indexed), column B (2)
+                                cell = worksheet.cell(row=idx+1, column=2)
+                                if cell.hyperlink and cell.hyperlink.target:
+                                    # Extract path from hyperlink (remove file:// prefix if present)
+                                    hyperlink_target = cell.hyperlink.target
+                                    if hyperlink_target.startswith('file://'):
+                                        full_path = hyperlink_target[7:]  # Remove 'file://'
+                                    else:
+                                        full_path = hyperlink_target  # Use as-is
+                                    receipt_data['original_file_full_path'] = full_path
+                                    logger.debug(f"Extracted full path from hyperlink: {full_path}")
+                            except Exception as e:
+                                logger.debug(f"Could not extract hyperlink from cell: {e}")
                         
             # Validate required fields
             required_fields = ['number', 'vendor', 'date', 'total_incl_vat', 'category']
@@ -368,77 +394,47 @@ class ReceiptConsolidator:
 
         return text
 
-    def _find_receipt_file(self, original_filename: str) -> Optional[Path]:
-        """Find receipt file in original locations"""
+    def _find_receipt_file(self, original_filename: str, full_path: Optional[str] = None) -> Optional[Path]:
+        """Find receipt file using simplified search logic
+
+        Search order:
+        1. Try full path from Excel hyperlink (if available)
+        2. Try current working directory
+        3. Try current working directory / receipts
+        4. Try user-specified receipts source directory (if provided)
+        """
         if not original_filename:
             return None
 
-        # Look in original receipt directories and common storage locations
-        search_dirs = []
-
-        # Add current directory and common receipt storage paths
-        current_dir = Path.cwd()
-        search_dirs.extend([
-            current_dir,
-            current_dir / "receipts",
-            current_dir / "documents",
-            current_dir / "scans",
-            current_dir.parent,  # Parent directory
-        ])
-
-        # Add user directories
-        home_dir = Path.home()
-        search_dirs.extend([
-            home_dir / "Downloads",
-            home_dir / "Documents",
-            home_dir / "Desktop",
-            home_dir / "Pictures",
-            home_dir / "Documents" / "receipts",
-            home_dir / "Downloads" / "receipts"
-        ])
-
-        # If filename contains a path, try to use that path
-        original_path = Path(original_filename)
-        if len(original_path.parts) > 1:
-            # Try the full path first
-            if original_path.exists():
-                return original_path
-
-            # Try the path relative to current directory
-            relative_path = current_dir / original_filename
-            if relative_path.exists():
-                return relative_path
-
-        # Search for the file in all directories
+        # Extract just the filename
         filename_only = Path(original_filename).name
-        for search_dir in search_dirs:
-            if not search_dir.exists():
-                continue
+        current_dir = Path.cwd()
 
-            # Try exact match first
-            exact_file = search_dir / filename_only
-            if exact_file.exists():
-                return exact_file
+        # 1. Try full path from hyperlink first
+        if full_path:
+            full_path_obj = Path(full_path)
+            if full_path_obj.exists() and full_path_obj.is_file():
+                logger.debug(f"Found receipt file at full path: {full_path}")
+                return full_path_obj
 
-            # Try case-insensitive search and recursive search
-            try:
-                # Search in current directory
-                for file in search_dir.iterdir():
-                    if file.is_file() and file.name.lower() == filename_only.lower():
-                        return file
+        # 2. Try current working directory
+        current_file = current_dir / filename_only
+        if current_file.exists() and current_file.is_file():
+            logger.debug(f"Found receipt file in current directory: {current_file}")
+            return current_file
 
-                # Search recursively in subdirectories (limited depth)
-                for file in search_dir.rglob(filename_only):
-                    if file.is_file():
-                        return file
+        # 3. Try current working directory / receipts
+        receipts_file = current_dir / "receipts" / filename_only
+        if receipts_file.exists() and receipts_file.is_file():
+            logger.debug(f"Found receipt file in ./receipts: {receipts_file}")
+            return receipts_file
 
-                # Case-insensitive recursive search
-                for file in search_dir.rglob("*"):
-                    if file.is_file() and file.name.lower() == filename_only.lower():
-                        return file
-
-            except (PermissionError, OSError):
-                continue
+        # 4. Try user-specified receipts source directory
+        if self.receipts_source_dir:
+            source_file = self.receipts_source_dir / filename_only
+            if source_file.exists() and source_file.is_file():
+                logger.debug(f"Found receipt file in source directory: {source_file}")
+                return source_file
 
         return None
 
@@ -487,7 +483,9 @@ class ReceiptConsolidator:
 
                 # Find source file
                 if original_filename:
-                    source_file = self._find_receipt_file(original_filename)
+                    # Try to get full path from hyperlink if available
+                    full_path = receipt.get('original_file_full_path')
+                    source_file = self._find_receipt_file(original_filename, full_path)
                     if source_file:
                         copy_stats["files_found"] += 1
 
@@ -741,7 +739,13 @@ def main():
         default=Path('./receipts_consolidated'),
         help='Output directory (default: ./receipts_consolidated)'
     )
-    
+    parser.add_argument(
+        '--receipts-source-dir',
+        type=Path,
+        default=None,
+        help='Directory to search for original receipt files (optional)'
+    )
+
     args = parser.parse_args()
     
     # Validate input files
@@ -759,9 +763,9 @@ def main():
     # Create timestamp-based output directory
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     output_dir = args.output / f'consolidation_{timestamp}'
-    
+
     # Initialize consolidator
-    consolidator = ReceiptConsolidator(output_dir)
+    consolidator = ReceiptConsolidator(output_dir, receipts_source_dir=args.receipts_source_dir)
     
     # Process files
     logger.info(f"Starting consolidation of {len(valid_files)} Excel files")
