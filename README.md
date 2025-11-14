@@ -289,6 +289,25 @@ For detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
 **Processing Speed:** 100 receipts: ~2-3 minutes (concurrent processing)
 **Cost:** ~$0.50 per 100 receipts using gpt-5-mini
 
+## 📜 License
+
+Copyright (c) 2025 Michael Litvin
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) - see the [LICENSE](LICENSE) file for details.
+
+### Important Disclaimer
+
+**⚠️ FINANCIAL DATA PROCESSING NOTICE**: This software is provided "AS IS" without warranty of any kind. While designed to assist with receipt processing and tax reporting, it may contain errors or produce inaccurate results. You are solely responsible for:
+
+- Verifying all extracted data for accuracy
+- Ensuring compliance with Israeli tax laws and regulations
+- Consulting with qualified tax professionals and accountants
+- Any financial or legal consequences resulting from use of this software
+
+The authors and copyright holders bear NO responsibility for accounting mistakes, tax errors, financial losses, or any other damages arising from the use of this software.
+
+Always review processed receipts carefully and consult with a certified tax advisor before submitting any tax-related documentation.
+
 ---
 
 **Note**: This system assists with receipt processing but doesn't replace professional tax advice. Always consult with a tax professional for compliance verification.
