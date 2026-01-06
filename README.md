@@ -90,7 +90,24 @@ Each extracted receipt creates an XLSX worksheet with this layout (Stage 1 extra
 
    # macOS
    brew install poppler
+
    ```
+
+   **Windows (Option 1: Miniconda - recommended)**
+   1. Download and install Miniconda from https://docs.conda.io/en/latest/miniconda.html
+   2. Open a new terminal and run:
+      ```bash
+      conda install -c conda-forge poppler
+      ```
+
+   **Windows (Option 2: Prebuilt binaries)**
+   1. Download the latest zip from https://github.com/oschwartz10612/poppler-windows/releases
+   2. Extract to `C:\poppler` (or any folder)
+   3. Add to PATH (run in PowerShell as Administrator):
+      ```powershell
+      [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\poppler\Library\bin", "Machine")
+      ```
+   4. Restart your terminal and verify with `pdfinfo -v`
 
 ### Installation
 
