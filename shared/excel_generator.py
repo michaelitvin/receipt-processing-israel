@@ -17,6 +17,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.formatting.rule import CellIsRule, FormulaRule
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.styles import Color, PatternFill, Font
+from openpyxl.workbook.defined_name import DefinedName
 
 logger = logging.getLogger(__name__)
 
@@ -36,19 +37,41 @@ class ExcelGenerator:
     def create_batch_workbook(self, receipts: List[Dict[str, Any]], images_dir: Path) -> Workbook:
         """Create workbook with multiple receipt worksheets"""
         wb = Workbook()
-        
+
         # Remove default sheet
         default_sheet = self.config.get_default_sheet_name()
         if default_sheet in wb.sheetnames:
             wb.remove(wb[default_sheet])
-            
+
+        # Create hidden sheet for categories (to avoid 255 char limit in data validation)
+        if self.categories:
+            self._create_categories_sheet(wb)
+
         # Create worksheet for each receipt
         for idx, receipt in enumerate(receipts, 1):
             ws_name = self.config.get_worksheet_name(idx)
             ws = wb.create_sheet(title=ws_name)
             self._create_receipt_worksheet(ws, receipt, images_dir)
-            
+
         return wb
+
+    def _create_categories_sheet(self, wb: Workbook):
+        """Create a hidden sheet with categories and define a named range"""
+        ws = wb.create_sheet(title="_Categories")
+
+        # Write categories to column A
+        for idx, category in enumerate(self.categories, 1):
+            ws.cell(row=idx, column=1, value=category)
+
+        # Hide the sheet
+        ws.sheet_state = 'hidden'
+
+        # Create named range for categories
+        # Format: '_Categories'!$A$1:$A$N where N is the number of categories
+        last_row = len(self.categories)
+        ref = f"'_Categories'!$A$1:$A${last_row}"
+        defn = DefinedName("CategoryList", attr_text=ref)
+        wb.defined_names.add(defn)
         
     def _create_receipt_worksheet(self, ws: Worksheet, receipt: Dict[str, Any], images_dir: Path):
         """Create a single receipt worksheet with data and image"""
@@ -121,9 +144,9 @@ class ExcelGenerator:
                 ws.add_data_validation(dv)
             elif field_key == 'category':
                 ws[value_cell] = value
-                # Add category dropdown
+                # Add category dropdown using named range (avoids 255 char limit)
                 if self.categories:
-                    dv = DataValidation(type="list", formula1='"' + ','.join(self.categories) + '"')
+                    dv = DataValidation(type="list", formula1="=CategoryList")
                     dv.add(ws[value_cell])
                     ws.add_data_validation(dv)
             elif field_key == 'original_file':
@@ -133,7 +156,9 @@ class ExcelGenerator:
                     filename = Path(original_file_path).name
                     ws[value_cell] = filename
                     # Create proper file:// URL for absolute path
-                    file_url = f"file://{Path(original_file_path).resolve()}"
+                    # Excel requires file:///C:/path format (three slashes, forward slashes)
+                    resolved_path = Path(original_file_path).resolve().as_posix()
+                    file_url = f"file:///{resolved_path}"
                     ws[value_cell].hyperlink = file_url
                     ws[value_cell].font = Font(color=self.config.get_color('hyperlink'), underline="single")
                 else:
