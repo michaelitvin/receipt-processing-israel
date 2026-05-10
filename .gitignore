@@ -35,8 +35,10 @@ Thumbs.db
 receipts_extracted*/
 receipts_consolidated*/
 Receipts - triage*/
+output/
 *.log
 *.tmp
+~$*
 
 # Personal prompt files
 *.personal.md

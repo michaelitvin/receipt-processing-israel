@@ -8,6 +8,7 @@ This is a two-stage receipt processing system for Israeli tax reporting that use
 
 **Stage 1**: `receipt_extractor.py` - Extracts data from receipt images/PDFs using OpenAI's Responses API, generates Excel files with embedded images for review
 **Stage 2**: `receipt_consolidator.py` - Processes reviewed Excel files and consolidates them into iCount-ready XLS format (true Excel 97-2003) with organized receipt files
+**VAT Report**: `vat_report.py` - Generates bi-monthly VAT report from iCount income/expenses exports with VAT calculation, split by reporting period
 
 ## Development Commands
 
@@ -37,6 +38,12 @@ uv run python receipt_consolidator.py path/to/excel1.xlsx path/to/excel2.xlsx
 
 # With custom output:
 uv run python receipt_consolidator.py *.xlsx --output ./consolidated
+```
+
+**VAT Report - Generate bi-monthly report:**
+```bash
+uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --output ./output
+# Both --income and --expenses are optional (but not both)
 ```
 
 ### Dependencies
@@ -80,6 +87,9 @@ The system handles Israeli-specific tax requirements:
 
 ## Important Notes
 
+- Windows console uses cp1252 encoding — use `PYTHONIOENCODING=utf-8` when printing Hebrew/Unicode from Python CLI
+- iCount exports: income date column is DD/MM/YYYY string (col C), expenses date column is datetime (col F)
+- iCount expenses already include pre-calculated deductibility in "מע"מ מוכר" column — use those values directly
 - No test suite currently exists
 - No linting/formatting tools configured
 - Logs are stored in `llm_logs/` directories with YAML format
