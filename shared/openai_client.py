@@ -57,9 +57,29 @@ class ProcessedReceipt:
     validation_notes: Optional[Dict[str, str]] = None
 
 
+# USD per 1M tokens: (input, cached input, output) - update when OpenAI changes pricing
+MODEL_PRICING = {
+    'gpt-5': (1.25, 0.125, 10.00),
+    'gpt-5-mini': (0.25, 0.025, 2.00),
+    'gpt-5-nano': (0.05, 0.005, 0.40),
+}
+
+
+def estimate_cost_usd(model: str, usage: Dict[str, int]) -> Optional[float]:
+    """Estimate call cost in USD from token usage; None if model pricing unknown"""
+    pricing = MODEL_PRICING.get(model)
+    if not pricing or not usage:
+        return None
+    input_price, cached_price, output_price = pricing
+    cached = usage.get('cached_input_tokens', 0)
+    uncached = usage.get('input_tokens', 0) - cached
+    return (uncached * input_price + cached * cached_price
+            + usage.get('output_tokens', 0) * output_price) / 1_000_000
+
+
 class OpenAIClient:
     """Client for OpenAI API with structured output"""
-    
+
     def __init__(self, api_key: str, model: str):
         """Initialize OpenAI client with Jinja template environment"""
         self.client = AsyncOpenAI(api_key=api_key)
@@ -135,7 +155,21 @@ class OpenAIClient:
                 store=False  # Don't store for compliance
             )
             api_call_end = datetime.now()
-            
+
+            # Capture token usage for cost tracking
+            usage = getattr(response, 'usage', None)
+            usage_data = None
+            if usage:
+                input_details = getattr(usage, 'input_tokens_details', None)
+                output_details = getattr(usage, 'output_tokens_details', None)
+                usage_data = {
+                    'input_tokens': usage.input_tokens,
+                    'cached_input_tokens': getattr(input_details, 'cached_tokens', 0) or 0,
+                    'output_tokens': usage.output_tokens,
+                    'reasoning_tokens': getattr(output_details, 'reasoning_tokens', 0) or 0,
+                    'total_tokens': usage.total_tokens,
+                }
+
             # Parse the structured response from output_text
             result = json.loads(response.output_text)
             
@@ -153,9 +187,10 @@ class OpenAIClient:
                 'total_response_time_seconds': (api_call_end - request_start_time).total_seconds(),
                 'api_response_time_seconds': (api_call_end - api_call_start).total_seconds(),
                 'store': False,
-                'text_format_type': text_format.get('type', 'unknown')
+                'text_format_type': text_format.get('type', 'unknown'),
+                'usage': usage_data
             }
-            
+
             return result
             
         except Exception as e:

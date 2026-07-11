@@ -35,7 +35,7 @@ from dotenv import load_dotenv
 # Add shared modules to path
 sys.path.append(str(Path(__file__).parent))
 
-from shared.openai_client import OpenAIClient, ProcessedReceipt
+from shared.openai_client import OpenAIClient, ProcessedReceipt, estimate_cost_usd
 from shared.image_handler import ImageHandler
 from shared.excel_generator import ExcelGenerator
 from shared.logger import ReceiptLogger
@@ -62,7 +62,8 @@ class ReceiptExtractor:
         output_dir: Path,
         model: str,
         max_concurrent: int = 100,
-        receipts_per_file: int = 100
+        receipts_per_file: int = 100,
+        period: Optional[str] = None
     ):
         """Initialize the extractor"""
         self.api_key = api_key
@@ -70,6 +71,7 @@ class ReceiptExtractor:
         self.max_concurrent = max_concurrent
         self.receipts_per_file = receipts_per_file
         self.model = model
+        self.period_months = self._parse_period(period) if period else None
         
         # Load extraction prompt directory
         self.extraction_prompt_dir = Path(__file__).parent / 'docs' / 'extraction-prompt'
@@ -101,7 +103,10 @@ class ReceiptExtractor:
             
         # Process receipts in parallel
         results = await self._process_receipts_parallel(receipt_files)
-        
+
+        # Flag suspicious extractions for manual review
+        self._add_review_warnings(results)
+
         # Generate Excel files in batches
         excel_files = self._generate_excel_batches(results)
         
@@ -114,6 +119,47 @@ class ReceiptExtractor:
         
         return summary
         
+    @staticmethod
+    def _parse_period(period: str) -> List[str]:
+        """Parse YYYY-MM into the canonical bi-monthly VAT period containing it.
+
+        Israeli VAT periods are Jan-Feb, Mar-Apr, May-Jun, Jul-Aug, Sep-Oct, Nov-Dec.
+        Returns the two months as ['YYYY-MM', 'YYYY-MM'] prefixes for date matching.
+        """
+        try:
+            year, month = map(int, period.split('-'))
+            if not 1 <= month <= 12:
+                raise ValueError
+        except ValueError:
+            raise ValueError(f"Invalid period {period!r}, expected YYYY-MM")
+        start = month if month % 2 == 1 else month - 1
+        return [f"{year:04d}-{start:02d}", f"{year:04d}-{start + 1:02d}"]
+
+    def _add_review_warnings(self, results: List[Dict[str, Any]]) -> None:
+        """Attach review warnings to successful results with suspicious data"""
+        for result in results:
+            if result.get('status') != 'success':
+                continue
+            info = result.get('receipt_info', {})
+            amounts = result.get('amounts', {})
+            warnings = []
+
+            if not amounts.get('total_incl_vat'):
+                warnings.append('סה"כ כולל מע"מ הוא 0 - ייתכן שהחילוץ נכשל')
+            if not info.get('number'):
+                warnings.append('חסר מספר קבלה')
+            if not info.get('vendor_id'):
+                warnings.append('חסר תז/חפ הספק')
+            date = info.get('date', '')
+            if not date:
+                warnings.append('חסר תאריך')
+            elif self.period_months and date[:7] not in self.period_months:
+                warnings.append(f'תאריך {date} מחוץ לתקופת הדיווח ({self.period_months[0]} עד {self.period_months[1]})')
+
+            if warnings:
+                result['review_warnings'] = warnings
+                logger.warning(f"Review needed for {Path(result.get('file_path', '?')).name}: {'; '.join(warnings)}")
+
     def _find_receipt_files(self, receipts_dir: Path) -> List[Path]:
         """Find all supported receipt files in directory"""
         receipt_files = []
@@ -320,6 +366,22 @@ class ReceiptExtractor:
             }
         }
         
+        # Aggregate token usage and estimated cost across all calls
+        totals = {'input_tokens': 0, 'cached_input_tokens': 0,
+                  'output_tokens': 0, 'reasoning_tokens': 0, 'total_tokens': 0}
+        calls_with_usage = 0
+        for r in results:
+            usage = (r.get('api_metadata') or {}).get('usage')
+            if usage:
+                calls_with_usage += 1
+                for key in totals:
+                    totals[key] += usage.get(key, 0) or 0
+        if calls_with_usage:
+            summary['token_usage'] = totals
+            cost = estimate_cost_usd(self.model, totals)
+            if cost is not None:
+                summary['estimated_cost_usd'] = round(cost, 4)
+
         # Add failed files details
         if failed > 0:
             summary['failed_files'] = [
@@ -329,7 +391,7 @@ class ReceiptExtractor:
                 }
                 for r in results if r.get('status') == 'error'
             ]
-            
+
         return summary
 
 
@@ -373,7 +435,14 @@ async def main():
         default=os.getenv('MODEL', 'gpt-5-mini'),
         help='OpenAI model to use (default: gpt-5-mini)'
     )
-    
+    parser.add_argument(
+        '--period',
+        type=str,
+        default=None,
+        help='Reporting period as YYYY-MM; receipts dated outside the bi-monthly '
+             'VAT period containing this month are flagged for review'
+    )
+
     args = parser.parse_args()
     
     # Validate inputs
@@ -384,6 +453,13 @@ async def main():
     if not args.api_key:
         logger.error("OpenAI API key not provided. Set OPENAI_API_KEY in .env or use --api-key")
         sys.exit(1)
+
+    if args.period:
+        try:
+            ReceiptExtractor._parse_period(args.period)
+        except ValueError as e:
+            logger.error(str(e))
+            sys.exit(1)
         
     # Create timestamp-based output directory
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -395,7 +471,8 @@ async def main():
         output_dir=output_dir,
         model=args.model,
         max_concurrent=args.concurrent,
-        receipts_per_file=args.receipts_per_file
+        receipts_per_file=args.receipts_per_file,
+        period=args.period
     )
     
     # Process receipts
@@ -411,6 +488,15 @@ async def main():
     print(f"Failed: {summary['failed']}")
     print(f"Processing time: {summary['processing_time_seconds']:.1f} seconds")
     print(f"Excel files generated: {summary['excel_files_generated']}")
+
+    if 'token_usage' in summary:
+        usage = summary['token_usage']
+        print(f"Tokens: {usage['input_tokens']:,} in "
+              f"({usage['cached_input_tokens']:,} cached), "
+              f"{usage['output_tokens']:,} out "
+              f"({usage['reasoning_tokens']:,} reasoning)")
+        if 'estimated_cost_usd' in summary:
+            print(f"Estimated cost: ${summary['estimated_cost_usd']:.4f}")
     
     if summary['excel_files']:
         print("\nGenerated files:")
