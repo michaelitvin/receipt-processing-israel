@@ -2,7 +2,7 @@ Extract the following information from this receipt/invoice:
 
 1. Receipt Information:
    - Receipt/invoice number
-   - Vendor name
+   - Vendor name: The merchant who actually sold the goods or services. Digital receipt platforms (e.g. Weezmo, EZcount, invoice4u, Green Invoice) that merely host or deliver the receipt are NEVER the vendor - use the merchant name printed on the receipt itself, even if the platform's branding is more prominent
    - Vendor ID: Extract the tax ID number (תז/חפ הספק) of the vendor if visible on the receipt. This could be a business registration number, VAT number, or tax ID. If there's a "ע.מ. באיחוד העוסקים" number, use it. If not visible, use empty string.
    - Date (format as YYYY-MM-DD)
    - Document type: Determine if this is an "invoice" (חשבונית), "receipt" (קבלה), or "invoice+receipt" (חשבונית מס קבלה)

@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from decimal import Decimal
+from PIL import Image as PILImage
 import openpyxl
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -101,7 +102,24 @@ class ExcelGenerator:
         
         # Add validation and formatting
         self._add_validation_and_formatting(ws, receipt)
-        
+
+        # Mark receipts flagged by extraction sanity checks
+        self._add_review_warnings(ws, receipt)
+
+    def _add_review_warnings(self, ws: Worksheet, receipt: Dict[str, Any]):
+        """Color the tab red and write warnings for receipts needing manual review"""
+        warnings = receipt.get('review_warnings')
+        if not warnings:
+            return
+        ws.sheet_properties.tabColor = self.config.get_color('error')
+        notes_cell = self.config.get_cell_reference(
+            self.config.header_start_row,
+            self.config.header_value_column + 2  # notes column
+        )
+        ws[notes_cell] = 'לבדיקה ידנית: ' + '; '.join(warnings)
+        ws[notes_cell].font = Font(bold=True, color=self.config.get_color('error'))
+        ws[notes_cell].alignment = Alignment(wrap_text=True, vertical='top')
+
     def _add_header_section(self, ws: Worksheet, receipt: Dict[str, Any]):
         """Add header information section"""
         # Add title row using dynamic config
@@ -234,7 +252,37 @@ class ExcelGenerator:
                 notes_cell.alignment = Alignment(wrap_text=True, vertical='top')
             else:
                 ws.cell(row=row, column=self.config.get_line_item_column('notes'), value='')
-            
+
+        # Totals row: sum the line items and warn when they don't add up
+        # to the receipt total (catches items the extraction missed)
+        if line_items:
+            self._add_line_items_sum_row(ws, len(line_items))
+
+    def _add_line_items_sum_row(self, ws: Worksheet, item_count: int):
+        """Add a sum row below the line items with a total-consistency check"""
+        first_row = self.config.line_items_start_row
+        last_row = first_row + item_count - 1
+        sum_row = last_row + 1
+
+        desc_cell = ws.cell(row=sum_row, column=self.config.get_line_item_column('description'),
+                            value='סה"כ פריטים')
+        desc_cell.font = Font(bold=True)
+
+        for field in ('amount_excl_vat', 'vat', 'total'):
+            col = get_column_letter(self.config.get_line_item_column(field))
+            cell = ws.cell(row=sum_row, column=self.config.get_line_item_column(field),
+                           value=f'=SUM({col}{first_row}:{col}{last_row})')
+            cell.font = Font(bold=True)
+
+        # Compare item totals to the header total (incl. VAT)
+        total_col = get_column_letter(self.config.get_line_item_column('total'))
+        header_total = self.config.get_header_cell_reference('total_incl_vat')
+        check_cell = ws.cell(
+            row=sum_row, column=self.config.get_line_item_column('notes'),
+            value=f'=IF(ABS({total_col}{sum_row}-{header_total})>0.02,'
+                  f'"הפריטים אינם מסתכמים לסה\"\"כ ("&ROUND({total_col}{sum_row}-{header_total},2)&")","")')
+        check_cell.font = Font(bold=True, color=self.config.get_color('error'))
+
     def _add_receipt_image(self, ws: Worksheet, receipt: Dict[str, Any], images_dir: Path):
         """Add receipt image to worksheet"""
         try:
@@ -247,9 +295,15 @@ class ExcelGenerator:
             
             if image_path.exists():
                 img = XLImage(str(image_path))
-                
-                # Scale image to fit in merged cells
-                img.width, img.height = self.config.get_image_dimensions()
+
+                # Scale image to fit the configured box, preserving aspect ratio
+                # (narrow thermal receipts get badly stretched otherwise)
+                box_w, box_h = self.config.get_image_dimensions()
+                with PILImage.open(image_path) as pil_img:
+                    src_w, src_h = pil_img.size
+                scale = min(box_w / src_w, box_h / src_h)
+                img.width = round(src_w * scale)
+                img.height = round(src_h * scale)
                 
                 # Position image using dynamic config
                 position_cell = self.config.get_image_position_cell()
