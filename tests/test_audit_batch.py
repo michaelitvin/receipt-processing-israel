@@ -86,3 +86,20 @@ def test_check_cli_flags_bad_sheet_only(batch):
     assert any("חסר מספר קבלה" in w for w in r2)
     assert any("מחוץ לתקופת הדיווח" in w for w in r2)
     assert rc == 1  # issues found -> exit 1
+
+
+def test_agent_prompts_values_from_manifest(batch):
+    prompts, _ = run_cli("agent-prompts", batch, "--chunk", "1")
+    assert len(prompts) == 2  # 2 receipts, chunk size 1
+    p1 = prompts[0]["prompt"]
+    assert "111" in p1 and "118.0" in p1 and "ספק בדיקה" in p1
+    assert "one.jpg" in p1
+    # anti-anchoring: transcription instruction precedes the extracted values
+    assert p1.index("TRANSCRIBE") < p1.index("extracted values for comparison")
+    assert prompts[0]["label"] == "audit:R001"
+
+
+def test_agent_prompts_chunking(batch):
+    prompts, _ = run_cli("agent-prompts", batch, "--chunk", "6")
+    assert len(prompts) == 1
+    assert prompts[0]["label"] == "audit:R001-R002"

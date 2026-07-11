@@ -121,6 +121,75 @@ def cmd_check(args) -> int:
     return 1 if issues else 0
 
 
+PROMPT_HEADER = """You are auditing extracted receipt data against the actual receipt \
+images for an Israeli tax-reporting pipeline. Hebrew receipts read right-to-left.
+
+For each receipt below, follow this exact order:
+1. Read the JPG image with the Read tool and TRANSCRIBE the key printed values \
+BEFORE looking at the extracted values: vendor name, vendor tax id (ח.פ/עוסק), \
+receipt/invoice number, date, net amount, VAT, total, currency, document type \
+(חשבונית / קבלה / חשבונית מס קבלה). Report your transcription.
+2. Only then compare your transcription against the extracted values listed for \
+that receipt and note real differences.
+3. Judge whether the page-1 JPG is representative for human review: does it show \
+the vendor and total, or is it a cover page/email with the invoice on a later page?
+
+If the page-1 JPG lacks the needed values, render more pages of the source PDF \
+(run from {repo}):
+  uv run python -c "import pdf2image; [im.save(rf'{scratch}\\audit_page_{{i}}.jpg','JPEG') \
+for i,im in enumerate(pdf2image.convert_from_path(r'<SOURCE_PDF>', dpi=150))]"
+then Read those page JPGs.
+
+Do NOT modify any files except temp page renders in the scratch directory.
+
+"""
+
+PROMPT_FOOTER = """
+Return one block per receipt, exactly this shape:
+SHEET_NAME: VERDICT (OK / MISMATCH / IMAGE-NOT-REPRESENTATIVE / UNVERIFIABLE)
+- transcribed: <the values you read off the image>
+- mismatches: <field: extracted vs printed - only real differences, or 'none'>
+- image_representative: yes/no + what page 1 shows
+- notes: <anything odd: possible duplicate, wrong doc type, non-expense document, \
+unusual billing entity, unreadable areas>"""
+
+
+def _receipt_prompt_block(r: dict) -> str:
+    info, amounts = r["receipt_info"], r["amounts"]
+    return (
+        f"{r['sheet']}:\n"
+        f"  image: {r['image_jpg']}\n"
+        f"  source_pdf: {r['source_pdf']}\n"
+        f"  extracted values for comparison (step 2): "
+        f"receipt_number={info.get('number')!r}, vendor={info.get('vendor')!r}, "
+        f"vendor_id={info.get('vendor_id')!r}, date={info.get('date')!r}, "
+        f"doc_type={info.get('document_type')!r}, currency={info.get('currency')!r}, "
+        f"net={amounts.get('total_excl_vat')}, vat={amounts.get('vat_amount')}, "
+        f"total={amounts.get('total_incl_vat')}, "
+        f"category={r['classification'].get('category')!r}\n"
+        f"  extracted line items: "
+        + "; ".join(
+            f"{li['description']} (net={li['amount_excl_vat']}, vat={li['vat']}, "
+            f"total={li['total']}, deductible={li['deductible']})"
+            for li in r["line_items"]) + "\n"
+    )
+
+
+def cmd_agent_prompts(args) -> int:
+    receipts = parse_batch(args.xlsx)
+    repo = Path(__file__).parent.parent
+    header = PROMPT_HEADER.format(repo=repo, scratch=args.scratch)
+    prompts = []
+    for i in range(0, len(receipts), args.chunk):
+        chunk = receipts[i:i + args.chunk]
+        label = (f"audit:{chunk[0]['sheet']}" if len(chunk) == 1
+                 else f"audit:{chunk[0]['sheet']}-{chunk[-1]['sheet']}")
+        body = "\n".join(_receipt_prompt_block(r) for r in chunk)
+        prompts.append({"label": label, "prompt": header + body + PROMPT_FOOTER})
+    print(json.dumps(prompts, ensure_ascii=False, indent=1))
+    return 0
+
+
 def main() -> int:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8")
@@ -136,6 +205,13 @@ def main() -> int:
     p.add_argument("xlsx", type=Path)
     p.add_argument("--period", help="reporting period YYYY-MM")
     p.set_defaults(func=cmd_check)
+
+    p = sub.add_parser("agent-prompts", help="emit visual-verification agent prompts")
+    p.add_argument("xlsx", type=Path)
+    p.add_argument("--chunk", type=int, default=6)
+    p.add_argument("--scratch", default=str(Path.home() / "AppData" / "Local" / "Temp"),
+                   help="directory agents may write temp page renders to")
+    p.set_defaults(func=cmd_agent_prompts)
 
     args = parser.parse_args()
     if not args.xlsx.exists():
