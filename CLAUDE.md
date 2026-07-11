@@ -10,6 +10,8 @@ This is a two-stage receipt processing system for Israeli tax reporting that use
 **Stage 2**: `receipt_consolidator.py` - Processes reviewed Excel files and consolidates them into iCount-ready XLS format (true Excel 97-2003) with organized receipt files
 **VAT Report**: `vat_report.py` - Generates bi-monthly VAT report from iCount income/expenses exports with VAT calculation, split by reporting period
 
+**Audit tooling**: `tools/audit_batch.py` - manifest/check/agent-prompts/apply-fixes/verify subcommands over extraction batch xlsx files; structural checks shared with the extractor via `shared/receipt_checks.py`. The `bimonthly-cycle` project skill orchestrates the full cycle. `AUDIT_KNOWLEDGE.personal.md` (untracked) holds personal audit context.
+
 ## Development Commands
 
 ### Environment Setup
@@ -90,7 +92,7 @@ The system handles Israeli-specific tax requirements:
 - Windows console uses cp1252 encoding — use `PYTHONIOENCODING=utf-8` when printing Hebrew/Unicode from Python CLI
 - iCount exports: income date column is DD/MM/YYYY string (col C), expenses date column is datetime (col F)
 - iCount expenses already include pre-calculated deductibility in "מע"מ מוכר" column — use those values directly
-- No test suite currently exists
+- Tests: `uv run pytest tests/` (covers receipt_checks and audit_batch; no coverage for extractor API paths)
 - No linting/formatting tools configured
 - Logs are stored in `llm_logs/` directories with YAML format
 - Failed receipts automatically generate empty Excel batches for manual entry
