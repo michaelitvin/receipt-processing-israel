@@ -92,7 +92,7 @@ def test_agent_prompts_values_from_manifest(batch):
     prompts, _ = run_cli("agent-prompts", batch, "--chunk", "1")
     assert len(prompts) == 2  # 2 receipts, chunk size 1
     p1 = prompts[0]["prompt"]
-    assert "111" in p1 and "118.0" in p1 and "ספק בדיקה" in p1
+    assert "111" in p1 and "total=118" in p1 and "ספק בדיקה" in p1
     assert "one.jpg" in p1
     # anti-anchoring: transcription instruction precedes the extracted values
     assert p1.index("TRANSCRIBE") < p1.index("extracted values for comparison")
