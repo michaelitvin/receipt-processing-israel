@@ -103,3 +103,57 @@ def test_agent_prompts_chunking(batch):
     prompts, _ = run_cli("agent-prompts", batch, "--chunk", "6")
     assert len(prompts) == 1
     assert prompts[0]["label"] == "audit:R001-R002"
+
+
+def test_apply_fixes_and_verify(batch, tmp_path):
+    import shutil as sh
+    work = tmp_path / "work.xlsx"
+    sh.copy2(batch, work)
+    fixes = [
+        {"sheet": "R001", "field": "vendor", "value": "ספק מתוקן", "note": "תוקן בביקורת"},
+        {"sheet": "R002", "line_item": 0,
+         "values": {"description": "דלק", "amount_excl_vat": 100.0, "vat": 18.0, "total": 118.0}},
+        {"sheet": "R002", "field": "total_incl_vat", "value": 118.0},
+        {"sheet": "R002", "field": "total_excl_vat", "value": 100.0},
+        {"sheet": "R002", "field": "vat_amount", "value": 18.0},
+        {"sheet": "R002", "non_expense": True, "note": "לא הוצאה"},
+    ]
+    fixes_path = tmp_path / "fixes.json"
+    fixes_path.write_text(json.dumps(fixes, ensure_ascii=False), encoding="utf-8")
+    backup_dir = tmp_path / "backups"
+
+    out, rc = run_cli("apply-fixes", work, fixes_path, "--backup-dir", backup_dir)
+    assert rc == 0
+    assert out["applied"] == 6
+    assert list(backup_dir.glob("*.xlsx")), "backup must exist"
+
+    from openpyxl import load_workbook
+    wb = load_workbook(work)
+    from shared.excel_config import get_excel_config
+    config = get_excel_config()
+    fields = [f for _, f in config.get_header_fields()]
+    vendor_row = config.header_start_row + fields.index("vendor")
+    ws1 = wb["R001"]
+    assert ws1.cell(row=vendor_row, column=config.header_value_column).value == "ספק מתוקן"
+    note = ws1.cell(row=vendor_row, column=config.header_value_column + 2).value
+    assert note == "תוקן בביקורת"
+    ws2 = wb["R002"]
+    assert "FF0000" in str(ws2.sheet_properties.tabColor.rgb)
+    li_row = config.line_items_start_row
+    assert ws2.cell(row=li_row, column=config.get_line_item_column("description")).value == "דלק"
+
+    report, rc = run_cli("verify", work)
+    assert rc == 0, report
+
+
+def test_verify_catches_broken_arithmetic(batch, tmp_path):
+    import shutil as sh
+    work = tmp_path / "broken.xlsx"
+    sh.copy2(batch, work)
+    fixes = [{"sheet": "R001", "field": "total_incl_vat", "value": 999.0}]
+    fixes_path = tmp_path / "fixes.json"
+    fixes_path.write_text(json.dumps(fixes), encoding="utf-8")
+    run_cli("apply-fixes", work, fixes_path, "--backup-dir", tmp_path / "b")
+    report, rc = run_cli("verify", work)
+    assert rc == 1
+    assert any("R001" in k for k in report)

@@ -190,6 +190,91 @@ def cmd_agent_prompts(args) -> int:
     return 0
 
 
+def cmd_apply_fixes(args) -> int:
+    fixes = json.loads(Path(args.fixes).read_text(encoding="utf-8"))
+    config = get_excel_config()
+    field_rows = {field: config.header_start_row + i
+                  for i, (_, field) in enumerate(config.get_header_fields())}
+    value_col = config.header_value_column
+    notes_col = value_col + 2
+    note_font = Font(color=AUDIT_NOTE_COLOR, bold=True)
+
+    args.backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup = args.backup_dir / f"{args.xlsx.stem}.backup-{stamp}.xlsx"
+    shutil.copy2(args.xlsx, backup)
+
+    wb = load_workbook(args.xlsx)
+    applied = 0
+    for fix in fixes:
+        ws = wb[fix["sheet"]]
+        note_row = None
+        if fix.get("non_expense"):
+            ws.sheet_properties.tabColor = "FF0000"
+            note_row = config.header_start_row
+        elif "field" in fix:
+            note_row = field_rows[fix["field"]]
+            ws.cell(row=note_row, column=value_col, value=fix["value"])
+        elif "line_item" in fix:
+            row = config.line_items_start_row + fix["line_item"]
+            for key, value in fix["values"].items():
+                ws.cell(row=row, column=config.get_line_item_column(key), value=value)
+        else:
+            raise ValueError(f"Unrecognized fix entry: {fix}")
+        if fix.get("note") and note_row is not None:
+            cell = ws.cell(row=note_row, column=notes_col, value=fix["note"])
+            cell.font = note_font
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        applied += 1
+
+    try:
+        wb.save(args.xlsx)
+    except PermissionError:
+        print(f"Cannot save {args.xlsx} - the file is open in Excel. "
+              f"Close it and re-run. (Backup kept at {backup})", file=sys.stderr)
+        return 3
+    print(json.dumps({"applied": applied, "backup": str(backup)}, ensure_ascii=False))
+    return 0
+
+
+def cmd_verify(args) -> int:
+    from shared.receipt_checks import AMOUNT_TOLERANCE, _num
+    config = get_excel_config()
+    wb = load_workbook(args.xlsx)
+    problems = {}
+
+    if "CategoryList" not in wb.defined_names:
+        problems["workbook"] = ["missing CategoryList named range"]
+
+    fields = [f for _, f in config.get_header_fields()]
+    value_col = config.header_value_column
+    net_row = config.header_start_row + fields.index("total_excl_vat")
+    vat_row = config.header_start_row + fields.index("vat_amount")
+    total_row = config.header_start_row + fields.index("total_incl_vat")
+
+    for name in wb.sheetnames:
+        if not SHEET_RE.fullmatch(name):
+            continue
+        ws = wb[name]
+        sheet_problems = []
+        if len(getattr(ws, "_images", [])) != 1:
+            sheet_problems.append(f"{len(ws._images)} embedded images (expected 1)")
+        if not ws.data_validations.dataValidation:
+            sheet_problems.append("no data validations")
+        if not any(c.hyperlink for row in ws.iter_rows() for c in row):
+            sheet_problems.append("no source hyperlink")
+        net = _num(ws.cell(row=net_row, column=value_col).value)
+        vat = _num(ws.cell(row=vat_row, column=value_col).value)
+        total = _num(ws.cell(row=total_row, column=value_col).value)
+        if total and abs(net + vat - total) > AMOUNT_TOLERANCE:
+            sheet_problems.append(f"arithmetic: {net:g} + {vat:g} != {total:g}")
+        if sheet_problems:
+            problems[name] = sheet_problems
+
+    print(json.dumps(problems, ensure_ascii=False, indent=1))
+    return 1 if problems else 0
+
+
 def main() -> int:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.reconfigure(encoding="utf-8")
@@ -212,6 +297,16 @@ def main() -> int:
     p.add_argument("--scratch", default=str(Path.home() / "AppData" / "Local" / "Temp"),
                    help="directory agents may write temp page renders to")
     p.set_defaults(func=cmd_agent_prompts)
+
+    p = sub.add_parser("apply-fixes", help="apply a fixes.json to the workbook")
+    p.add_argument("xlsx", type=Path)
+    p.add_argument("fixes", type=Path)
+    p.add_argument("--backup-dir", type=Path, required=True)
+    p.set_defaults(func=cmd_apply_fixes)
+
+    p = sub.add_parser("verify", help="post-fix integrity check")
+    p.add_argument("xlsx", type=Path)
+    p.set_defaults(func=cmd_verify)
 
     args = parser.parse_args()
     if not args.xlsx.exists():
