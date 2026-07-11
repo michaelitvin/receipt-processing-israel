@@ -37,6 +37,7 @@ sys.path.append(str(Path(__file__).parent))
 
 from shared.openai_client import OpenAIClient, ProcessedReceipt, estimate_cost_usd
 from shared.image_handler import ImageHandler
+from shared.receipt_checks import parse_period, check_batch
 from shared.excel_generator import ExcelGenerator
 from shared.logger import ReceiptLogger
 
@@ -71,7 +72,7 @@ class ReceiptExtractor:
         self.max_concurrent = max_concurrent
         self.receipts_per_file = receipts_per_file
         self.model = model
-        self.period_months = self._parse_period(period) if period else None
+        self.period_months = parse_period(period) if period else None
         
         # Load extraction prompt directory
         self.extraction_prompt_dir = Path(__file__).parent / 'docs' / 'extraction-prompt'
@@ -119,46 +120,15 @@ class ReceiptExtractor:
         
         return summary
         
-    @staticmethod
-    def _parse_period(period: str) -> List[str]:
-        """Parse YYYY-MM into the canonical bi-monthly VAT period containing it.
-
-        Israeli VAT periods are Jan-Feb, Mar-Apr, May-Jun, Jul-Aug, Sep-Oct, Nov-Dec.
-        Returns the two months as ['YYYY-MM', 'YYYY-MM'] prefixes for date matching.
-        """
-        try:
-            year, month = map(int, period.split('-'))
-            if not 1 <= month <= 12:
-                raise ValueError
-        except ValueError:
-            raise ValueError(f"Invalid period {period!r}, expected YYYY-MM")
-        start = month if month % 2 == 1 else month - 1
-        return [f"{year:04d}-{start:02d}", f"{year:04d}-{start + 1:02d}"]
-
     def _add_review_warnings(self, results: List[Dict[str, Any]]) -> None:
         """Attach review warnings to successful results with suspicious data"""
-        for result in results:
-            if result.get('status') != 'success':
-                continue
-            info = result.get('receipt_info', {})
-            amounts = result.get('amounts', {})
-            warnings = []
-
-            if not amounts.get('total_incl_vat'):
-                warnings.append('סה"כ כולל מע"מ הוא 0 - ייתכן שהחילוץ נכשל')
-            if not info.get('number'):
-                warnings.append('חסר מספר קבלה')
-            if not info.get('vendor_id'):
-                warnings.append('חסר תז/חפ הספק')
-            date = info.get('date', '')
-            if not date:
-                warnings.append('חסר תאריך')
-            elif self.period_months and date[:7] not in self.period_months:
-                warnings.append(f'תאריך {date} מחוץ לתקופת הדיווח ({self.period_months[0]} עד {self.period_months[1]})')
-
+        successful = [r for r in results if r.get('status') == 'success']
+        for idx, warnings in check_batch(successful, self.period_months).items():
             if warnings:
-                result['review_warnings'] = warnings
-                logger.warning(f"Review needed for {Path(result.get('file_path', '?')).name}: {'; '.join(warnings)}")
+                successful[idx]['review_warnings'] = warnings
+                logger.warning(
+                    f"Review needed for {Path(successful[idx].get('file_path', '?')).name}: "
+                    f"{'; '.join(warnings)}")
 
     def _find_receipt_files(self, receipts_dir: Path) -> List[Path]:
         """Find all supported receipt files in directory"""
@@ -456,7 +426,7 @@ async def main():
 
     if args.period:
         try:
-            ReceiptExtractor._parse_period(args.period)
+            parse_period(args.period)
         except ValueError as e:
             logger.error(str(e))
             sys.exit(1)
