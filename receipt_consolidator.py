@@ -552,6 +552,16 @@ class ReceiptConsolidator:
             amount = line_item['total']
         else:
             amount = receipt.get('total_incl_vat', 0)
+            # When some line items are marked non-deductible, import only the
+            # deductible portion (e.g. a combined bill covering a personal line)
+            line_items = receipt.get('line_items', [])
+            if any(not li.get('deductible', True) for li in line_items):
+                amount = sum(li['total'] for li in line_items if li.get('deductible', True))
+                logger.info(
+                    f"Receipt {receipt.get('number', '?')} ({receipt.get('vendor', '?')}): "
+                    f"importing deductible portion {amount} instead of full total "
+                    f"{receipt.get('total_incl_vat', 0)}"
+                )
 
         # Get category and append VAT 0 indicator if applicable
         category = receipt.get('category', '')
