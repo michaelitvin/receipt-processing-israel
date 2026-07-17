@@ -300,6 +300,15 @@ class ExcelLayoutConfig:
             return message.format(**kwargs)
         return message
 
+    @property
+    def line_items_sum_label(self) -> str:
+        """Column-A label of the totals row written below the line items.
+
+        Single source of truth: the generator writes this row, and both readers
+        (audit_batch, consolidator) stop at it so it is never parsed as an item.
+        """
+        return self.config['text_messages']['line_items_sum_label']
+
     # Category settings methods
     def get_category_skip_items(self) -> List[str]:
         """Get items to skip when loading categories"""

@@ -204,19 +204,24 @@ class ReceiptConsolidator:
             line_items = []
             # config value is a 1-based Excel row; df.iloc is 0-based
             line_item_start = self.config.line_items_start_row - 1
+            sum_label = self.config.line_items_sum_label
 
             if len(df) > line_item_start:
                 for idx, row in df.iloc[line_item_start:].iterrows():
-                    # Check if row has data (description not empty)
-                    if pd.notna(row.iloc[0]) and str(row.iloc[0]).strip():
-                        line_item = {
-                            'description': str(row.iloc[0]).strip(),
-                            'amount_excl_vat': self._safe_float(row.iloc[1] if len(row) > 1 else 0),
-                            'vat': self._safe_float(row.iloc[2] if len(row) > 2 else 0),
-                            'total': self._safe_float(row.iloc[4] if len(row) > 4 else 0),
-                            'deductible': self._safe_bool(row.iloc[5] if len(row) > 5 else True)
-                        }
-                        line_items.append(line_item)
+                    # Stop at the first empty row or the totals row the generator
+                    # writes below the items - never parse that sum as an item
+                    # (mirrors audit_batch.parse_batch).
+                    desc = row.iloc[0]
+                    if pd.isna(desc) or not str(desc).strip() or str(desc).strip() == sum_label:
+                        break
+                    line_item = {
+                        'description': str(desc).strip(),
+                        'amount_excl_vat': self._safe_float(row.iloc[1] if len(row) > 1 else 0),
+                        'vat': self._safe_float(row.iloc[2] if len(row) > 2 else 0),
+                        'total': self._safe_float(row.iloc[4] if len(row) > 4 else 0),
+                        'deductible': self._safe_bool(row.iloc[5] if len(row) > 5 else True)
+                    }
+                    line_items.append(line_item)
                         
             # Add metadata
             receipt_data['line_items'] = line_items
@@ -543,7 +548,12 @@ class ReceiptConsolidator:
                 })
                 logger.error(f"Error copying receipt file for receipt {receipt_id}: {e}")
 
-        logger.info(f"Receipt file copying complete: {copy_stats['files_copied']}/{copy_stats['total_receipts']} files copied")
+        copied, total = copy_stats['files_copied'], copy_stats['total_receipts']
+        if copied < total:
+            logger.warning(f"Receipt file copying incomplete: {copied}/{total} copied "
+                           f"({copy_stats['files_missing']} missing)")
+        else:
+            logger.info(f"Receipt file copying complete: {copied}/{total} files copied")
         return copy_stats
 
     def _create_icount_row(self, receipt: Dict[str, Any], line_item: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -839,8 +849,19 @@ def main():
     summary_path = output_dir / f'consolidation_summary_{timestamp}.json'
     with open(summary_path, 'w', encoding='utf-8') as f:
         json.dump(summary, f, ensure_ascii=False, indent=2, default=str)
-        
+
     print(f"Summary saved to: {summary_path}")
+
+    # Fail loudly on the forgotten-flag case: nothing copied and no source dir
+    # given is almost always a missing --receipts-source-dir, not intent.
+    receipt_stats = summary.get('receipt_files', {})
+    if (receipt_stats.get('files_copied', 0) == 0
+            and receipt_stats.get('total_receipts', 0) > 0
+            and args.receipts_source_dir is None):
+        print("\nWARNING: 0 receipt files were copied and no --receipts-source-dir "
+              "was given.\nPass --receipts-source-dir <folder of original receipts> "
+              "to copy them alongside the iCount file.")
+        sys.exit(1)
 
 
 if __name__ == '__main__':
