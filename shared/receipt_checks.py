@@ -165,19 +165,27 @@ def missing_recurring_vendors(receipts: List[Dict[str, Any]],
                               recurring: List[Dict[str, Any]]) -> List[str]:
     """Names of expected recurring vendors absent from these receipts.
 
-    recurring: [{"name": str, "keywords": [str, ...]}, ...] - a vendor is present
-    if any of its keywords is a case-insensitive substring of any receipt's vendor
-    name. Pass every batch of the period together so a vendor in another batch is
-    not falsely reported missing.
+    recurring: [{"name": str, "keywords": [...], "ids": [...]}, ...]. A vendor is
+    present if any of its keywords is a case-insensitive substring of some receipt's
+    vendor name, OR any of its ids matches some receipt's vendor_id (normalized, so
+    hyphens/spaces and a dropped leading zero don't matter). Matching by id is more
+    robust when the printed name varies; keywords suit foreign vendors with no
+    Israeli ח.פ. Pass every batch of the period together so a vendor in another
+    batch is not falsely reported missing.
     """
     vendors_low = [str(r.get('receipt_info', {}).get('vendor', '')).lower()
                    for r in receipts]
+    ids_present = {normalize_id(r.get('receipt_info', {}).get('vendor_id', ''))
+                   for r in receipts}
+    ids_present.discard('')
     missing = []
     for entry in recurring or []:
         name = entry.get('name') or ''
         keywords = entry.get('keywords') or []
-        present = any(kw.lower() in v for kw in keywords for v in vendors_low)
-        if not present:
+        ids = entry.get('ids') or []
+        by_name = any(kw.lower() in v for kw in keywords for v in vendors_low)
+        by_id = any(normalize_id(i) in ids_present for i in ids)
+        if not (by_name or by_id):
             missing.append(name)
     return missing
 

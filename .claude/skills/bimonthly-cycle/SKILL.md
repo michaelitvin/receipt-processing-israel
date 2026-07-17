@@ -44,7 +44,10 @@ Steps (`BATCH` = the batch xlsx path):
    Then `uv run python tools/audit_batch.py recurring BATCH [BATCH2 ...]` (pass
    ALL of the period's batches at once) - a non-empty `missing` list means a
    recurring receipt (NetCom, AcmeMobile, water, electricity, ...) was never
-   collected; tell the user to locate it before consolidating.
+   collected; tell the user to locate it before consolidating. If a vendor is
+   wrongly reported missing (its name/id changed) or a genuinely new recurring
+   vendor appears, propose an edit to `recurring_vendors.personal.yaml` per the
+   caution in Phase 5 - do not edit it silently.
 2. `uv run python tools/audit_batch.py agent-prompts BATCH --scratch <session scratchpad>`
    then dispatch each prompt to a general-purpose subagent (parallel, background).
 3. Reconcile agent transcriptions against the manifest. Consult
@@ -90,9 +93,16 @@ propose routed updates, each requiring explicit user approval:
 - General process lessons → this SKILL.md (edit it)
 - Extraction steering (categories, deductibility, vendor rules) →
   `docs/extraction-prompt/002-ADDITIONAL_INSTRUCTIONS.personal.md`
+- Recurring-vendor set (a new vendor that now bills every period, or a changed
+  name/id that caused a false "missing") → `recurring_vendors.personal.yaml`
+  (prefer `ids` for Israeli vendors, `keywords` for foreign ones)
 
 Nothing is written without approval. Do not auto-commit SKILL.md edits -
-show the diff and let the user decide.
+show the diff and let the user decide. EXTRA CAUTION for the `*.personal.*`
+files (AUDIT_KNOWLEDGE, 002-ADDITIONAL_INSTRUCTIONS, recurring_vendors): they
+are untracked and NOT backed up, so a bad edit is unrecoverable - show the exact
+change and get explicit approval before writing, and never delete existing
+entries without the user confirming.
 
 ## Known traps
 

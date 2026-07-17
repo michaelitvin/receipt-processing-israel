@@ -195,6 +195,25 @@ def test_missing_recurring_vendors_substring_and_case_insensitive():
     assert missing == []
 
 
+def test_missing_recurring_vendors_matches_by_id():
+    # present by id even though the name doesn't match any keyword
+    spec = [{"name": "Mobile", "ids": ["123456782"], "keywords": ["אקמי"]}]
+    receipts = [make_receipt(vendor="unrecognized name", vendor_id="123456782")]
+    assert missing_recurring_vendors(receipts, spec) == []
+
+
+def test_missing_recurring_vendors_id_match_ignores_formatting():
+    spec = [{"name": "Vendor", "ids": ["012345678"]}]
+    receipts = [make_receipt(vendor="x", vendor_id="12345678")]  # dropped leading zero
+    assert missing_recurring_vendors(receipts, spec) == []
+
+
+def test_missing_recurring_vendors_id_or_name_both_absent():
+    spec = [{"name": "Vendor", "ids": ["123456782"], "keywords": ["אקמי"]}]
+    receipts = [make_receipt(vendor="something else", vendor_id="111111111")]
+    assert missing_recurring_vendors(receipts, spec) == ["Vendor"]
+
+
 def test_missing_recurring_vendors_all_present():
     receipts = [make_receipt(vendor="אקמי"), make_receipt(vendor="נטקום"),
                 make_receipt(vendor="מים לעיר")]
