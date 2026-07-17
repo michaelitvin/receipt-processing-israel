@@ -88,6 +88,38 @@ def test_check_cli_flags_bad_sheet_only(batch):
     assert rc == 1  # issues found -> exit 1
 
 
+def test_renamed_sheets_still_parse(batch, tmp_path):
+    # A reviewed batch may carry vendor suffixes on sheet names (R001partner).
+    from openpyxl import load_workbook
+    work = tmp_path / "renamed.xlsx"
+    import shutil as sh
+    sh.copy2(batch, work)
+    wb = load_workbook(work)
+    wb["R001"].title = "R001partner"
+    wb["R002"].title = "R002gas"
+    wb.save(work)
+    receipts = parse_batch(work)
+    assert {r["sheet"] for r in receipts} == {"R001partner", "R002gas"}
+
+
+def test_check_fails_loudly_when_no_receipt_sheets(batch, tmp_path):
+    # Sheets that don't match R### must not be silently skipped to a green result.
+    from openpyxl import load_workbook
+    work = tmp_path / "nosheets.xlsx"
+    import shutil as sh
+    sh.copy2(batch, work)
+    wb = load_workbook(work)
+    wb["R001"].title = "junk1"
+    wb["R002"].title = "junk2"
+    wb.save(work)
+    result = subprocess.run(
+        ["uv", "run", "python", str(REPO / "tools" / "audit_batch.py"), "check", str(work)],
+        capture_output=True, cwd=REPO)
+    assert result.returncode == 2, result.stderr.decode("utf-8", "replace")
+    payload = json.loads(result.stdout.decode("utf-8"))
+    assert "workbook" in payload
+
+
 def test_agent_prompts_values_from_manifest(batch):
     prompts, _ = run_cli("agent-prompts", batch, "--chunk", "1")
     assert len(prompts) == 2  # 2 receipts, chunk size 1

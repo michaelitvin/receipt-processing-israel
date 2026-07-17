@@ -15,6 +15,24 @@ VAT_RATE = 0.18
 VAT_RATE_TOLERANCE = 0.005
 
 
+def valid_israeli_id(value: Any) -> bool:
+    """True if value is a valid 9-digit Israeli ID / ח.פ (Luhn-style check digit).
+
+    Foreign vendor ids (e.g. 'IE 8256796 U', 'NA', '') are not 9 pure digits and
+    return False here; callers must only treat that as an error when an Israeli id
+    is actually expected. Israeli ids shorter than 9 digits are zero-padded.
+    """
+    digits = ''.join(ch for ch in str(value) if ch.isdigit())
+    if not digits or len(digits) > 9:
+        return False
+    digits = digits.zfill(9)
+    total = 0
+    for i, ch in enumerate(digits):
+        d = int(ch) * (1 if i % 2 == 0 else 2)
+        total += d if d < 10 else d - 9
+    return total % 10 == 0
+
+
 def parse_period(period: str) -> List[str]:
     """Parse YYYY-MM into the canonical bi-monthly VAT period containing it.
 
@@ -47,8 +65,16 @@ def check_receipt(receipt: Dict[str, Any],
         warnings.append('סה"כ כולל מע"מ הוא 0 - ייתכן שהחילוץ נכשל')
     if not info.get('number'):
         warnings.append('חסר מספר קבלה')
-    if not info.get('vendor_id'):
+    vendor_id = info.get('vendor_id')
+    if not vendor_id:
         warnings.append('חסר תז/חפ הספק')
+    elif (info.get('currency') or 'ILS') == 'ILS':
+        # Only validate ids on domestic (ILS) receipts, where an Israeli ח.פ is
+        # expected. Foreign vendors carry foreign-format ids that happen to be 9
+        # digits (e.g. a US EIN like NN-NNNNNNN) and must not trip the check digit.
+        stripped = ''.join(ch for ch in str(vendor_id) if ch not in ' .-/')
+        if stripped.isdigit() and 8 <= len(stripped) <= 9 and not valid_israeli_id(stripped):
+            warnings.append(f'ספרת ביקורת שגויה בתז/חפ הספק: {vendor_id}')
 
     date = info.get('date') or ''
     if not date:
