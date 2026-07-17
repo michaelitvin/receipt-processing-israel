@@ -170,6 +170,7 @@ text_messages:
   non_deductible_note: "לא ניתן לניכוי - ראה הסבר בשדה הנמקה"
   total_mismatch_error: "שגיאה: סכום לא תואם"
   vat_warning_format: "אזהרה: מע״מ {vat_pct:.1f}%"
+  line_items_sum_label: "סה\"כ פריטים"
 
 # Category loading settings
 category_settings:

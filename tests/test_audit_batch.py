@@ -120,6 +120,25 @@ def test_check_fails_loudly_when_no_receipt_sheets(batch, tmp_path):
     assert "workbook" in payload
 
 
+def test_agent_prompts_fails_loudly_when_no_receipt_sheets(batch, tmp_path):
+    # agent-prompts must fail loudly on zero matching sheets, like check/manifest.
+    from openpyxl import load_workbook
+    work = tmp_path / "nosheets_prompts.xlsx"
+    import shutil as sh
+    sh.copy2(batch, work)
+    wb = load_workbook(work)
+    wb["R001"].title = "junk1"
+    wb["R002"].title = "junk2"
+    wb.save(work)
+    result = subprocess.run(
+        ["uv", "run", "python", str(REPO / "tools" / "audit_batch.py"),
+         "agent-prompts", str(work), "--scratch", str(tmp_path)],
+        capture_output=True, cwd=REPO)
+    assert result.returncode == 2, result.stderr.decode("utf-8", "replace")
+    payload = json.loads(result.stdout.decode("utf-8"))
+    assert "workbook" in payload
+
+
 def test_recurring_reports_missing_vendor(batch, monkeypatch, capsys):
     import argparse
     import audit_batch

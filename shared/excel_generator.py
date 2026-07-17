@@ -265,7 +265,7 @@ class ExcelGenerator:
         sum_row = last_row + 1
 
         desc_cell = ws.cell(row=sum_row, column=self.config.get_line_item_column('description'),
-                            value='סה"כ פריטים')
+                            value=self.config.line_items_sum_label)
         desc_cell.font = Font(bold=True)
 
         for field in ('amount_excl_vat', 'vat', 'total'):

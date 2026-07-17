@@ -44,7 +44,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Sheet names may carry a human-added vendor suffix after review (e.g. "R001partner")
 SHEET_RE = re.compile(r"R\d{3}.*")
-LINE_ITEMS_SUM_LABEL = 'סה"כ פריטים'
+LINE_ITEMS_SUM_LABEL = get_excel_config().line_items_sum_label
 AUDIT_NOTE_COLOR = "CC5500"
 
 INFO_FIELDS = {"number", "vendor", "vendor_id", "date", "document_type",
@@ -232,6 +232,7 @@ def _receipt_prompt_block(r: dict) -> str:
 
 def cmd_agent_prompts(args) -> int:
     receipts = parse_batch(args.xlsx)
+    _require_sheets(receipts)
     repo = Path(__file__).parent.parent
     header = PROMPT_HEADER.format(repo=repo, scratch=args.scratch)
     prompts = []
