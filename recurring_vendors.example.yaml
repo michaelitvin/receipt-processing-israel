@@ -1,15 +1,20 @@
 # Example for recurring_vendors.personal.yaml (copy it, then fill in your vendors).
 # Vendors expected in EVERY reporting period. `audit_batch recurring <batch>...`
-# warns when none of a vendor's keywords match any receipt across the batches you
-# pass - catching a recurring receipt that was never collected/extracted.
-# Match is a case-insensitive substring of the receipt's vendor name; list a
-# keyword per spelling/language so any variant is recognized.
+# warns when a vendor matches NO receipt across the batches you pass - catching a
+# recurring receipt that was never collected/extracted.
+#
+# A vendor is "present" if either matches any receipt:
+#   ids:      the receipt's vendor_id (normalized - hyphens/spaces and a dropped
+#             leading zero don't matter). Most robust; prefer it for domestic vendors.
+#   keywords: a case-insensitive substring of the receipt's vendor name. Use for
+#             foreign vendors with no local tax id, or as a fallback.
+# List either or both. Give a keyword per spelling/language so any variant matches.
 recurring:
   - name: "Mobile carrier"
+    ids: ["123456782"]
     keywords: ["Acme Mobile", "אקמי"]
   - name: "Electricity"
+    ids: ["100000009"]
     keywords: ["Power Co", "חברת החשמל"]
-  - name: "Water utility"
-    keywords: ["Water Corp"]
-  - name: "Cloud subscription"
+  - name: "Cloud subscription"      # foreign vendor, no local id - name only
     keywords: ["ExampleCloud"]
