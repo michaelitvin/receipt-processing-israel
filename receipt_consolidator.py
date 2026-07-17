@@ -202,8 +202,9 @@ class ReceiptConsolidator:
                 
             # Extract line items using configuration
             line_items = []
-            line_item_start = self.config.line_items_start_row
-            
+            # config value is a 1-based Excel row; df.iloc is 0-based
+            line_item_start = self.config.line_items_start_row - 1
+
             if len(df) > line_item_start:
                 for idx, row in df.iloc[line_item_start:].iterrows():
                     # Check if row has data (description not empty)
