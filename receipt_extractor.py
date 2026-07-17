@@ -37,7 +37,7 @@ sys.path.append(str(Path(__file__).parent))
 
 from shared.openai_client import OpenAIClient, ProcessedReceipt, estimate_cost_usd
 from shared.image_handler import ImageHandler
-from shared.receipt_checks import parse_period, check_batch
+from shared.receipt_checks import parse_period, check_batch, parse_own_ids
 from shared.excel_generator import ExcelGenerator
 from shared.logger import ReceiptLogger
 
@@ -73,6 +73,7 @@ class ReceiptExtractor:
         self.receipts_per_file = receipts_per_file
         self.model = model
         self.period_months = parse_period(period) if period else None
+        self.own_ids = parse_own_ids(os.getenv('OWN_TAX_IDS'))
         
         # Load extraction prompt directory
         self.extraction_prompt_dir = Path(__file__).parent / 'docs' / 'extraction-prompt'
@@ -123,7 +124,7 @@ class ReceiptExtractor:
     def _add_review_warnings(self, results: List[Dict[str, Any]]) -> None:
         """Attach review warnings to successful results with suspicious data"""
         successful = [r for r in results if r.get('status') == 'success']
-        for idx, warnings in check_batch(successful, self.period_months).items():
+        for idx, warnings in check_batch(successful, self.period_months, self.own_ids).items():
             if warnings:
                 successful[idx]['review_warnings'] = warnings
                 logger.warning(
