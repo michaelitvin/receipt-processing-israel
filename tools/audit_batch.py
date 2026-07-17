@@ -21,6 +21,7 @@ Used by the bimonthly-cycle skill; see .claude/skills/bimonthly-cycle/SKILL.md.
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -29,11 +30,14 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
+from dotenv import load_dotenv
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font
 
 from shared.excel_config import get_excel_config
-from shared.receipt_checks import check_batch, parse_period
+from shared.receipt_checks import check_batch, parse_own_ids, parse_period
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Sheet names may carry a human-added vendor suffix after review (e.g. "R001partner")
 SHEET_RE = re.compile(r"R\d{3}.*")
@@ -131,7 +135,8 @@ def cmd_check(args) -> int:
     receipts = parse_batch(args.xlsx)
     _require_sheets(receipts)
     period_months = parse_period(args.period) if args.period else None
-    warnings = check_batch(receipts, period_months)
+    own_ids = parse_own_ids(os.environ.get("OWN_TAX_IDS"))
+    warnings = check_batch(receipts, period_months, own_ids)
     issues = {receipts[i]["sheet"]: w for i, w in warnings.items() if w}
     print(json.dumps(issues, ensure_ascii=False, indent=1))
     return 1 if issues else 0

@@ -1,7 +1,7 @@
 import pytest
 
 from shared.receipt_checks import (parse_period, check_receipt, check_batch,
-                                   valid_israeli_id)
+                                   valid_israeli_id, parse_own_ids, normalize_id)
 
 
 def make_receipt(number="123", vendor="ספק", vendor_id="5100", date="2026-05-10",
@@ -131,6 +131,45 @@ def test_check_receipt_skips_check_digit_for_foreign_currency():
     # validated as Israeli even though it fails the Israeli check digit
     warnings = check_receipt(make_receipt(vendor_id="12-3456789", currency="USD"))
     assert not any("ספרת ביקורת" in w for w in warnings)
+
+
+# ---- own-id guard ----
+
+def test_parse_own_ids_splits_and_normalizes():
+    # separators vary; a dropped leading zero must still match
+    assert parse_own_ids("123456782, 22222222-6; 90000000") == {
+        normalize_id("123456782"), normalize_id("222222226"), normalize_id("090000000")}
+    assert parse_own_ids("") == set()
+    assert parse_own_ids(None) == set()
+
+
+def test_check_receipt_flags_own_id_as_vendor():
+    own = parse_own_ids("123456782")
+    warnings = check_receipt(make_receipt(vendor_id="123456782"), own_ids=own)
+    assert any("של העסק/הבעלים" in w for w in warnings)
+
+
+def test_own_id_flagged_even_with_valid_check_digit_and_formatting():
+    # own id is a *valid* Israeli id, so only the own-id list can catch it;
+    # matching ignores hyphens and a dropped leading zero
+    own = parse_own_ids("012345678")  # synthetic, valid check digit unnecessary here
+    r = make_receipt(vendor_id="12345678")  # leading zero dropped
+    assert any("של העסק/הבעלים" in w for w in check_receipt(r, own_ids=own))
+
+
+def test_check_receipt_does_not_flag_normal_vendor_id():
+    own = parse_own_ids("123456782")
+    warnings = check_receipt(make_receipt(vendor_id="222222226"), own_ids=own)
+    assert not any("של העסק/הבעלים" in w for w in warnings)
+
+
+def test_check_batch_threads_own_ids():
+    own = parse_own_ids("123456782")
+    receipts = [make_receipt(number="1", vendor_id="123456782"),
+                make_receipt(number="2", vendor_id="222222226", date="2026-06-07")]
+    result = check_batch(receipts, own_ids=own)
+    assert any("של העסק/הבעלים" in w for w in result[0])
+    assert not any("של העסק/הבעלים" in w for w in result[1])
 
 
 # ---- check_batch ----

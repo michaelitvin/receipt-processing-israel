@@ -11,9 +11,10 @@ def make_result(status="success", number="9", vendor_id="1", date="2026-05-10", 
             "line_items": []}
 
 
-def make_extractor(period_months):
+def make_extractor(period_months, own_ids=None):
     ex = object.__new__(ReceiptExtractor)  # bypass __init__ (needs API key)
     ex.period_months = period_months
+    ex.own_ids = own_ids or set()
     return ex
 
 

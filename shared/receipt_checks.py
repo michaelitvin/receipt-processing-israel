@@ -7,12 +7,29 @@ Pure functions over plain receipt dicts shaped like extractor results:
 Checks that need the source document (visual verification) do NOT belong
 here - they are the audit's job, and their value is independence.
 """
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Set
 
 VALID_CURRENCIES = {'ILS', 'USD', 'EUR'}
 AMOUNT_TOLERANCE = 0.02   # receipts themselves round by up to one agora
 VAT_RATE = 0.18
 VAT_RATE_TOLERANCE = 0.005
+
+
+def normalize_id(value: Any) -> str:
+    """Digits-only, zero-padded to 9, for comparing ids that may differ in
+    formatting (hyphens, spaces) or a dropped leading zero. Non-Israeli-length
+    ids are returned digits-only without padding."""
+    digits = ''.join(ch for ch in str(value) if ch.isdigit())
+    return digits.zfill(9) if 0 < len(digits) <= 9 else digits
+
+
+def parse_own_ids(text: Optional[str]) -> Set[str]:
+    """Parse a comma/semicolon/whitespace-separated list of the business's own
+    tax ids (owner + spouse, etc.) into a set of normalized ids. Empty if None."""
+    if not text:
+        return set()
+    return {normalize_id(part) for part in re.split(r'[,;\s]+', text.strip()) if part}
 
 
 def valid_israeli_id(value: Any) -> bool:
@@ -50,8 +67,13 @@ def parse_period(period: str) -> List[str]:
 
 
 def check_receipt(receipt: Dict[str, Any],
-                  period_months: Optional[List[str]] = None) -> List[str]:
-    """Return warnings for a single receipt (empty list = clean)"""
+                  period_months: Optional[List[str]] = None,
+                  own_ids: Optional[Set[str]] = None) -> List[str]:
+    """Return warnings for a single receipt (empty list = clean).
+
+    own_ids: normalized ids of the business/owner/spouse. A vendor_id equal to one
+    of these is the extractor mistaking our own id for the vendor's - always wrong.
+    """
     info = receipt.get('receipt_info', {})
     amounts = receipt.get('amounts', {})
     line_items = receipt.get('line_items', [])
@@ -66,8 +88,11 @@ def check_receipt(receipt: Dict[str, Any],
     if not info.get('number'):
         warnings.append('חסר מספר קבלה')
     vendor_id = info.get('vendor_id')
+    own = {normalize_id(x) for x in own_ids} if own_ids else set()
     if not vendor_id:
         warnings.append('חסר תז/חפ הספק')
+    elif own and normalize_id(vendor_id) in own:
+        warnings.append(f'תז/חפ הספק זהה לזה של העסק/הבעלים - כנראה שגוי: {vendor_id}')
     elif (info.get('currency') or 'ILS') == 'ILS':
         # Only validate ids on domestic (ILS) receipts, where an Israeli ח.פ is
         # expected. Foreign vendors carry foreign-format ids that happen to be 9
@@ -105,9 +130,11 @@ def check_receipt(receipt: Dict[str, Any],
 
 
 def check_batch(receipts: List[Dict[str, Any]],
-                period_months: Optional[List[str]] = None) -> Dict[int, List[str]]:
+                period_months: Optional[List[str]] = None,
+                own_ids: Optional[Set[str]] = None) -> Dict[int, List[str]]:
     """Per-receipt warnings plus cross-receipt duplicate detection"""
-    result = {i: check_receipt(r, period_months) for i, r in enumerate(receipts)}
+    own = {normalize_id(x) for x in own_ids} if own_ids else None
+    result = {i: check_receipt(r, period_months, own) for i, r in enumerate(receipts)}
 
     by_number: Dict[tuple, List[int]] = {}
     by_signature: Dict[tuple, List[int]] = {}
