@@ -174,28 +174,34 @@ class ReceiptExtractor:
         logger.info(f"Processing {receipt_path.name}")
         
         try:
-            # Process image/PDF
-            images = ImageHandler.process_file(receipt_path)
-            
+            # Raster-only PDFs (e.g. Weezmo receipts) read poorly as raw PDF; use
+            # their crisp embedded bitmap for both the API and the Excel image.
+            bitmap = ImageHandler.extraction_bitmap(receipt_path)
+            if bitmap is not None:
+                image = bitmap
+            else:
+                images = ImageHandler.process_file(receipt_path)
+                image = images[0] if images else None
+
             # For PDFs with multiple pages, process first page only
-            if images:
-                image = images[0]
-                
+            if image is not None:
                 # Save processed image for Excel
                 image_output_path = self.images_dir / receipt_path.with_suffix('.jpg').name
                 ImageHandler.save_image_for_excel(image, image_output_path)
-                
+
                 # Extract data using OpenAI
                 request_data = {
                     'file': str(receipt_path),
                     'extraction_prompt_dir': str(self.extraction_prompt_dir),
-                    'timestamp': datetime.now().isoformat()
+                    'timestamp': datetime.now().isoformat(),
+                    'input_strategy': 'embedded_bitmap' if bitmap is not None else 'raw_file'
                 }
-                
+
                 try:
                     result = await self.openai_client.extract_receipt_data(
                         receipt_path,
-                        self.extraction_prompt_dir
+                        self.extraction_prompt_dir,
+                        image=bitmap
                     )
                     
                     # Log successful interaction with response format

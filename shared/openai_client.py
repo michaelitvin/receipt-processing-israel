@@ -3,6 +3,7 @@
 """OpenAI API client with structured output support"""
 
 import base64
+import io
 import json
 import logging
 from pathlib import Path
@@ -96,19 +97,29 @@ class OpenAIClient:
             self.text_format = json.load(f)
         
     async def extract_receipt_data(
-        self, 
+        self,
         file_path: Path,
-        extraction_prompt_dir: Path
+        extraction_prompt_dir: Path,
+        image: Optional["Image.Image"] = None
     ) -> Dict[str, Any]:
-        """Extract receipt data using OpenAI Responses API with structured output"""
-        
+        """Extract receipt data using OpenAI Responses API with structured output.
+
+        When ``image`` is given, that PIL image is sent instead of the source file
+        (used for raster-only PDFs whose embedded bitmap reads far better than the
+        raw PDF the model would otherwise downsample). Otherwise the file itself is
+        sent - raw PDF as input_file, or the image as input_image.
+        """
+
         # Record request timing
         from datetime import datetime
         request_start_time = datetime.now()
-        
-        # Read and encode file (image or PDF)
-        file_data, mime_type = await self._encode_file(file_path)
-        
+
+        # Read and encode file (image or PDF), unless an override image was provided
+        if image is None:
+            file_data, mime_type = await self._encode_file(file_path)
+        else:
+            file_data, mime_type = None, None
+
         # Build the prompt using Jinja template with all extraction prompt content
         prompt = await self._build_extraction_prompt(extraction_prompt_dir)
         
@@ -116,8 +127,17 @@ class OpenAIClient:
         text_format = self.text_format
         
         try:
-            # Determine content type based on file type
-            if mime_type == 'application/pdf':
+            # Determine content type based on input
+            if image is not None:
+                # Override bitmap (raster-only PDF): send as an image
+                buf = io.BytesIO()
+                image.save(buf, 'PNG')
+                img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+                file_content = {
+                    "type": "input_image",
+                    "image_url": f"data:image/png;base64,{img_b64}"
+                }
+            elif mime_type == 'application/pdf':
                 file_content = {
                     "type": "input_file",
                     "filename": file_path.name,

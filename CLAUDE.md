@@ -92,7 +92,8 @@ The system handles Israeli-specific tax requirements:
 - Windows console uses cp1252 encoding — use `PYTHONIOENCODING=utf-8` when printing Hebrew/Unicode from Python CLI
 - iCount exports: income date column is DD/MM/YYYY string (col C), expenses date column is datetime (col F)
 - iCount expenses already include pre-calculated deductibility in "מע"מ מוכר" column — use those values directly
-- Tests: `uv run pytest tests/` (covers receipt_checks and audit_batch; no coverage for extractor API paths)
+- Tests: `uv run pytest tests/` (covers receipt_checks, audit_batch, and the image_handler raster-PDF gate; no coverage for the live OpenAI API paths)
+- Raster-only PDFs (no text layer + embedded bitmap, e.g. Weezmo receipts) are detected by `ImageHandler.extraction_bitmap`, which sends the crisp embedded bitmap (via poppler's `pdfimages`) to both the API and the Excel review image instead of the raw PDF; normal text-layer PDFs keep the raw-PDF path. Needs `pdftotext`/`pdfimages` on PATH.
 - No linting/formatting tools configured
 - Logs are stored in `llm_logs/` directories with YAML format
 - Failed receipts automatically generate empty Excel batches for manual entry
