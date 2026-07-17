@@ -1,6 +1,7 @@
 import pytest
 
-from shared.receipt_checks import parse_period, check_receipt, check_batch
+from shared.receipt_checks import (parse_period, check_receipt, check_batch,
+                                   valid_israeli_id)
 
 
 def make_receipt(number="123", vendor="ספק", vendor_id="5100", date="2026-05-10",
@@ -84,6 +85,52 @@ def test_line_items_sum_mismatch_flagged():
 def test_line_items_sum_match_ok():
     items = [{"total": 40.00}, {"total": 40.00}]
     assert check_receipt(make_receipt(net=67.80, vat=9.2, total=80.00, line_items=items)) == []
+
+
+# ---- Israeli id check digit ----
+
+# synthetic 9-digit ids (valid check digit) and separator variant - no real entity
+VALID_IDS = ["123456782", "222222226", "100000009", "202020202", "13570000-3"]
+# same numbers with the check digit bumped by one -> invalid (stands in for OCR slips)
+INVALID_IDS = ["123456783", "222222227", "100000000", "202020203"]
+
+
+def test_valid_israeli_id_accepts_valid_check_digits():
+    for good in VALID_IDS:
+        assert valid_israeli_id(good), good
+
+
+def test_valid_israeli_id_rejects_bad_check_digits():
+    for bad in INVALID_IDS:
+        assert not valid_israeli_id(bad), bad
+
+
+def test_valid_israeli_id_rejects_foreign_and_junk():
+    for bad in ["IE 1234567 X", "NA", "", "1234567890"]:
+        assert not valid_israeli_id(bad)
+
+
+def test_check_receipt_flags_bad_check_digit():
+    warnings = check_receipt(make_receipt(vendor_id="123456783"))
+    assert any("ספרת ביקורת שגויה" in w for w in warnings)
+
+
+def test_check_receipt_accepts_good_check_digit():
+    warnings = check_receipt(make_receipt(vendor_id="123456782"))
+    assert not any("ספרת ביקורת" in w for w in warnings)
+
+
+def test_check_receipt_skips_foreign_vendor_id_format():
+    # foreign id must not trip the check-digit rule (only the missing-id rule applies to blanks)
+    warnings = check_receipt(make_receipt(vendor_id="IE 1234567 X"))
+    assert not any("ספרת ביקורת" in w for w in warnings)
+
+
+def test_check_receipt_skips_check_digit_for_foreign_currency():
+    # a US-EIN-shaped id (9 digits, hyphen after 2nd) on a USD receipt must not be
+    # validated as Israeli even though it fails the Israeli check digit
+    warnings = check_receipt(make_receipt(vendor_id="12-3456789", currency="USD"))
+    assert not any("ספרת ביקורת" in w for w in warnings)
 
 
 # ---- check_batch ----

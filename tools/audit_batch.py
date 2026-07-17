@@ -35,7 +35,8 @@ from openpyxl.styles import Alignment, Font
 from shared.excel_config import get_excel_config
 from shared.receipt_checks import check_batch, parse_period
 
-SHEET_RE = re.compile(r"R\d{3}")
+# Sheet names may carry a human-added vendor suffix after review (e.g. "R001partner")
+SHEET_RE = re.compile(r"R\d{3}.*")
 LINE_ITEMS_SUM_LABEL = 'סה"כ פריטים'
 AUDIT_NOTE_COLOR = "CC5500"
 
@@ -106,14 +107,29 @@ def parse_batch(xlsx: Path) -> list:
     return receipts
 
 
+def _require_sheets(receipts: list) -> None:
+    """Guard against a workbook whose receipt sheets none of us can see.
+
+    A reviewed batch with renamed/reordered sheets used to parse to zero receipts
+    and pass every check silently. Fail loudly instead.
+    """
+    if not receipts:
+        print(json.dumps(
+            {"workbook": ["no R### receipt sheets parsed - wrong file or unreadable layout"]},
+            ensure_ascii=False, indent=1))
+        raise SystemExit(2)
+
+
 def cmd_manifest(args) -> int:
     receipts = parse_batch(args.xlsx)
+    _require_sheets(receipts)
     print(json.dumps({r["sheet"]: r for r in receipts}, ensure_ascii=False, indent=1, default=str))
     return 0
 
 
 def cmd_check(args) -> int:
     receipts = parse_batch(args.xlsx)
+    _require_sheets(receipts)
     period_months = parse_period(args.period) if args.period else None
     warnings = check_batch(receipts, period_months)
     issues = {receipts[i]["sheet"]: w for i, w in warnings.items() if w}
@@ -252,9 +268,11 @@ def cmd_verify(args) -> int:
     vat_row = config.header_start_row + fields.index("vat_amount")
     total_row = config.header_start_row + fields.index("total_incl_vat")
 
+    checked = 0
     for name in wb.sheetnames:
         if not SHEET_RE.fullmatch(name):
             continue
+        checked += 1
         ws = wb[name]
         sheet_problems = []
         if len(getattr(ws, "_images", [])) != 1:
@@ -270,6 +288,9 @@ def cmd_verify(args) -> int:
             sheet_problems.append(f"arithmetic: {net:g} + {vat:g} != {total:g}")
         if sheet_problems:
             problems[name] = sheet_problems
+
+    if not checked:
+        problems["workbook"] = ["no R### receipt sheets found - wrong file or unreadable layout"]
 
     print(json.dumps(problems, ensure_ascii=False, indent=1))
     return 1 if problems else 0
