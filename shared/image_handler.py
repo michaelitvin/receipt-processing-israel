@@ -3,8 +3,11 @@
 """Image processing utilities for receipts"""
 
 import logging
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 from PIL import Image
 import pdf2image
 import io
@@ -14,10 +17,15 @@ logger = logging.getLogger(__name__)
 
 class ImageHandler:
     """Handles image and PDF processing for receipts"""
-    
+
     SUPPORTED_IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
     SUPPORTED_PDF_FORMAT = '.pdf'
     MAX_IMAGE_SIZE = (2048, 2048)  # Max size for API
+    # A PDF with fewer non-whitespace text-layer chars than this has no usable text
+    # layer - its content is a raster (e.g. Weezmo receipts). Calibrated: Weezmo
+    # receipts read 0-42 chars, text-layer invoices 600+.
+    SPARSE_TEXT_MAX_CHARS = 100
+    MIN_EMBEDDED_DIM = 300  # ignore logos/masks smaller than this
     
     @classmethod
     def is_supported_file(cls, file_path: Path) -> bool:
@@ -66,6 +74,78 @@ class ImageHandler:
             logger.error(f"Error processing image {image_path}: {e}")
             raise
             
+    @classmethod
+    def _pdf_text_char_count(cls, pdf_path: Path) -> int:
+        """Non-whitespace chars in the PDF's text layer; -1 if unknowable.
+
+        -1 (poppler missing / error) means "don't gate" - the caller keeps the
+        normal path rather than risk a wrong decision.
+        """
+        exe = shutil.which('pdftotext')
+        if not exe:
+            return -1
+        try:
+            out = subprocess.run([exe, str(pdf_path), '-'],
+                                 capture_output=True, timeout=30)
+            return len(''.join(out.stdout.decode('utf-8', 'replace').split()))
+        except Exception as e:
+            logger.debug(f"pdftotext failed on {pdf_path}: {e}")
+            return -1
+
+    @classmethod
+    def _largest_embedded_image(cls, pdf_path: Path) -> Optional[Image.Image]:
+        """Largest-file-size embedded raster >= MIN_EMBEDDED_DIM, or None.
+
+        Weezmo-style PDFs stretch a crisp embedded bitmap onto a tall page; blank
+        or mask layers compress tiny, so the largest PNG is the real receipt.
+        """
+        exe = shutil.which('pdfimages')
+        if not exe:
+            return None
+        with tempfile.TemporaryDirectory() as td:
+            try:
+                subprocess.run([exe, '-png', str(pdf_path), str(Path(td) / 'e')],
+                               capture_output=True, timeout=60, check=True)
+            except Exception as e:
+                logger.debug(f"pdfimages failed on {pdf_path}: {e}")
+                return None
+            best, best_size = None, -1
+            for p in Path(td).glob('e-*.png'):
+                try:
+                    with Image.open(p) as im:
+                        w, h = im.size
+                except Exception:
+                    continue
+                if w >= cls.MIN_EMBEDDED_DIM and h >= cls.MIN_EMBEDDED_DIM \
+                        and p.stat().st_size > best_size:
+                    best, best_size = p, p.stat().st_size
+            if best is None:
+                return None
+            with Image.open(best) as im:
+                return im.convert('RGB') if im.mode not in ('RGB', 'L') else im.copy()
+
+    @classmethod
+    def extraction_bitmap(cls, file_path: Path) -> Optional[Image.Image]:
+        """The crisp source bitmap for a raster-only PDF, else None.
+
+        Some digitally-generated PDFs (e.g. Weezmo fuel receipts) carry no usable
+        text layer and stretch a small embedded bitmap onto a tall, sparse page.
+        The model reads the raw PDF poorly (it downsamples the whole tall page),
+        so for these we send the native embedded bitmap instead - to both the API
+        and the Excel review image. Returns None for normal PDFs (which keep the
+        raw-PDF path) and for non-PDF inputs.
+        """
+        if file_path.suffix.lower() != cls.SUPPORTED_PDF_FORMAT:
+            return None
+        chars = cls._pdf_text_char_count(file_path)
+        if chars < 0 or chars >= cls.SPARSE_TEXT_MAX_CHARS:
+            return None
+        bitmap = cls._largest_embedded_image(file_path)
+        if bitmap is not None:
+            logger.info(f"{file_path.name}: no text layer ({chars} chars); using "
+                        f"embedded bitmap {bitmap.size} for extraction")
+        return bitmap
+
     @classmethod
     def _resize_image(cls, img: Image.Image) -> Image.Image:
         """Resize image if it exceeds max dimensions"""
