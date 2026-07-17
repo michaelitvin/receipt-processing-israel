@@ -40,8 +40,9 @@ output/
 *.tmp
 ~$*
 
-# Personal prompt files
-*.personal.md
+# Personal files (prompts, audit knowledge, recurring-vendor lists, etc.)
+# Any *.personal.* is untracked - real values never reach the public repo.
+*.personal.*
 
 # SSH Keys - Never commit these
 github-key-*

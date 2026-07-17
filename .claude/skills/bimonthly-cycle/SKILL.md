@@ -41,6 +41,10 @@ Steps (`BATCH` = the batch xlsx path):
 
 1. `uv run python tools/audit_batch.py check BATCH --period <YYYY-MM>` and
    `... manifest BATCH` - note structural issues.
+   Then `uv run python tools/audit_batch.py recurring BATCH [BATCH2 ...]` (pass
+   ALL of the period's batches at once) - a non-empty `missing` list means a
+   recurring receipt (NetCom, AcmeMobile, water, electricity, ...) was never
+   collected; tell the user to locate it before consolidating.
 2. `uv run python tools/audit_batch.py agent-prompts BATCH --scratch <session scratchpad>`
    then dispatch each prompt to a general-purpose subagent (parallel, background).
 3. Reconcile agent transcriptions against the manifest. Consult
@@ -62,6 +66,8 @@ Hand off: the user reviews the audited xlsx in Excel (red tabs first, then
 audit notes in the הערות column). When they say they are done:
 `uv run python tools/audit_batch.py check BATCH --period <YYYY-MM>` again -
 their edits are unvalidated input. Surface any new issues before Phase 4.
+Re-run `... recurring BATCH [BATCH2 ...]` too - confirm the `missing` list is
+empty (or the user has accounted for each) before consolidating.
 
 ## Phase 4 - Consolidate
 
