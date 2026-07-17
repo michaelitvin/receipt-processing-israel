@@ -161,6 +161,27 @@ def check_batch(receipts: List[Dict[str, Any]],
     return result
 
 
+def missing_recurring_vendors(receipts: List[Dict[str, Any]],
+                              recurring: List[Dict[str, Any]]) -> List[str]:
+    """Names of expected recurring vendors absent from these receipts.
+
+    recurring: [{"name": str, "keywords": [str, ...]}, ...] - a vendor is present
+    if any of its keywords is a case-insensitive substring of any receipt's vendor
+    name. Pass every batch of the period together so a vendor in another batch is
+    not falsely reported missing.
+    """
+    vendors_low = [str(r.get('receipt_info', {}).get('vendor', '')).lower()
+                   for r in receipts]
+    missing = []
+    for entry in recurring or []:
+        name = entry.get('name') or ''
+        keywords = entry.get('keywords') or []
+        present = any(kw.lower() in v for kw in keywords for v in vendors_low)
+        if not present:
+            missing.append(name)
+    return missing
+
+
 def _num(value: Any) -> float:
     """Lenient numeric coercion - xlsx round-trips may yield strings"""
     if value is None:

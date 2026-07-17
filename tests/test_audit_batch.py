@@ -120,6 +120,29 @@ def test_check_fails_loudly_when_no_receipt_sheets(batch, tmp_path):
     assert "workbook" in payload
 
 
+def test_recurring_reports_missing_vendor(batch, monkeypatch, capsys):
+    import argparse
+    import audit_batch
+    monkeypatch.setattr(audit_batch, "_load_recurring_vendors", lambda: [
+        {"name": "Present Co", "keywords": ["ספק בדיקה"]},
+        {"name": "Missing Co", "keywords": ["nonexistent vendor"]},
+    ])
+    rc = audit_batch.cmd_recurring(argparse.Namespace(xlsx=[batch]))
+    out = json.loads(capsys.readouterr().out)
+    assert out["missing"] == ["Missing Co"]
+    assert "Present Co" in out["present"]
+    assert rc == 1
+
+
+def test_recurring_no_config_is_noop(batch, monkeypatch, capsys):
+    import argparse
+    import audit_batch
+    monkeypatch.setattr(audit_batch, "_load_recurring_vendors", lambda: [])
+    rc = audit_batch.cmd_recurring(argparse.Namespace(xlsx=[batch]))
+    assert rc == 0
+    assert "note" in json.loads(capsys.readouterr().out)
+
+
 def test_agent_prompts_values_from_manifest(batch):
     prompts, _ = run_cli("agent-prompts", batch, "--chunk", "1")
     assert len(prompts) == 2  # 2 receipts, chunk size 1

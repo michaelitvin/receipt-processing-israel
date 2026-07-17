@@ -1,0 +1,15 @@
+# Example for recurring_vendors.personal.yaml (copy it, then fill in your vendors).
+# Vendors expected in EVERY reporting period. `audit_batch recurring <batch>...`
+# warns when none of a vendor's keywords match any receipt across the batches you
+# pass - catching a recurring receipt that was never collected/extracted.
+# Match is a case-insensitive substring of the receipt's vendor name; list a
+# keyword per spelling/language so any variant is recognized.
+recurring:
+  - name: "Mobile carrier"
+    keywords: ["Acme Mobile", "אקמי"]
+  - name: "Electricity"
+    keywords: ["Power Co", "חברת החשמל"]
+  - name: "Water utility"
+    keywords: ["Water Corp"]
+  - name: "Cloud subscription"
+    keywords: ["ExampleCloud"]

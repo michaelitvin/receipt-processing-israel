@@ -1,7 +1,8 @@
 import pytest
 
 from shared.receipt_checks import (parse_period, check_receipt, check_batch,
-                                   valid_israeli_id, parse_own_ids, normalize_id)
+                                   valid_israeli_id, parse_own_ids, normalize_id,
+                                   missing_recurring_vendors)
 
 
 def make_receipt(number="123", vendor="ספק", vendor_id="5100", date="2026-05-10",
@@ -170,6 +171,38 @@ def test_check_batch_threads_own_ids():
     result = check_batch(receipts, own_ids=own)
     assert any("של העסק/הבעלים" in w for w in result[0])
     assert not any("של העסק/הבעלים" in w for w in result[1])
+
+
+# ---- missing recurring vendors ----
+
+RECURRING = [
+    {"name": "Mobile", "keywords": ["אקמי", "AcmeMobile"]},
+    {"name": "Internet", "keywords": ["נטקום", "NetCom"]},
+    {"name": "Water", "keywords": ["מים לעיר"]},
+]
+
+
+def test_missing_recurring_vendors_reports_absent_only():
+    receipts = [make_receipt(vendor="AcmeMobile (אקמי)"),
+                make_receipt(vendor='מים לעיר בע"מ')]
+    missing = missing_recurring_vendors(receipts, RECURRING)
+    assert missing == ["Internet"]  # NetCom absent; Mobile + Water present
+
+
+def test_missing_recurring_vendors_substring_and_case_insensitive():
+    receipts = [make_receipt(vendor='NETCOM ISRAEL LTD')]
+    missing = missing_recurring_vendors(receipts, [RECURRING[1]])
+    assert missing == []
+
+
+def test_missing_recurring_vendors_all_present():
+    receipts = [make_receipt(vendor="אקמי"), make_receipt(vendor="נטקום"),
+                make_receipt(vendor="מים לעיר")]
+    assert missing_recurring_vendors(receipts, RECURRING) == []
+
+
+def test_missing_recurring_vendors_empty_spec():
+    assert missing_recurring_vendors([make_receipt()], []) == []
 
 
 # ---- check_batch ----

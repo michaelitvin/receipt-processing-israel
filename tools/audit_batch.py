@@ -9,6 +9,8 @@ Subcommands (JSON in/out, UTF-8):
   agent-prompts <xlsx> [--chunk N]     visual-verification agent prompts
   apply-fixes <xlsx> <fixes.json> --backup-dir DIR
   verify <xlsx>                        post-fix integrity (exit 1 if broken)
+  recurring <xlsx>...                   warn if an expected recurring vendor is
+                                        missing (reads recurring_vendors.personal.yaml)
 
 fixes.json is a JSON list; each entry is one of:
   {"sheet": "R001", "field": "vendor", "value": "X", "note": "optional"}
@@ -35,7 +37,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font
 
 from shared.excel_config import get_excel_config
-from shared.receipt_checks import check_batch, parse_own_ids, parse_period
+from shared.receipt_checks import (check_batch, missing_recurring_vendors,
+                                   parse_own_ids, parse_period)
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -129,6 +132,37 @@ def cmd_manifest(args) -> int:
     _require_sheets(receipts)
     print(json.dumps({r["sheet"]: r for r in receipts}, ensure_ascii=False, indent=1, default=str))
     return 0
+
+
+RECURRING_VENDORS_FILE = Path(__file__).parent.parent / "recurring_vendors.personal.yaml"
+
+
+def _load_recurring_vendors() -> list:
+    """Load the personal recurring-vendors list, or [] if it is absent."""
+    if not RECURRING_VENDORS_FILE.exists():
+        return []
+    import yaml
+    data = yaml.safe_load(RECURRING_VENDORS_FILE.read_text(encoding="utf-8")) or {}
+    return data.get("recurring") or []
+
+
+def cmd_recurring(args) -> int:
+    recurring = _load_recurring_vendors()
+    if not recurring:
+        print(json.dumps(
+            {"note": f"no {RECURRING_VENDORS_FILE.name} - nothing to check"},
+            ensure_ascii=False, indent=1))
+        return 0
+    receipts = []
+    for xlsx in args.xlsx:
+        receipts.extend(parse_batch(Path(xlsx)))
+    _require_sheets(receipts)
+    missing = missing_recurring_vendors(receipts, recurring)
+    present = [e.get("name") for e in recurring if e.get("name") not in missing]
+    print(json.dumps({"missing": missing, "present": present,
+                      "batches": len(args.xlsx), "receipts": len(receipts)},
+                     ensure_ascii=False, indent=1))
+    return 1 if missing else 0
 
 
 def cmd_check(args) -> int:
@@ -334,10 +368,18 @@ def main() -> int:
     p.add_argument("xlsx", type=Path)
     p.set_defaults(func=cmd_verify)
 
+    p = sub.add_parser("recurring",
+                       help="warn if an expected recurring vendor is missing "
+                            "(pass all of the period's batches)")
+    p.add_argument("xlsx", type=Path, nargs="+")
+    p.set_defaults(func=cmd_recurring)
+
     args = parser.parse_args()
-    if not args.xlsx.exists():
-        print(f"File not found: {args.xlsx}", file=sys.stderr)
-        return 2
+    xlsx_args = args.xlsx if isinstance(args.xlsx, list) else [args.xlsx]
+    for x in xlsx_args:
+        if not x.exists():
+            print(f"File not found: {x}", file=sys.stderr)
+            return 2
     return args.func(args)
 
 
