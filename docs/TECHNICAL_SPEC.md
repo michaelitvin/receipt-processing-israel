@@ -1,5 +1,9 @@
 # Receipt Processing System - Technical Specification
 
+> **Historical snapshot (September 2025).** Details here may be stale — e.g. it
+> predates `vat_report.py`, the audit tooling, and the uv/YAML-logging setup.
+> `README.md` and `CLAUDE.md` describe current behavior.
+
 ### Version: 2.0
 ### Date: September 11, 2025
 

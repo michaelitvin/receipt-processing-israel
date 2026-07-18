@@ -10,7 +10,7 @@ This is a two-stage receipt processing system for Israeli tax reporting that use
 **Stage 2**: `receipt_consolidator.py` - Processes reviewed Excel files and consolidates them into iCount-ready XLS format (true Excel 97-2003) with organized receipt files
 **VAT Report**: `vat_report.py` - Generates bi-monthly VAT report from iCount income/expenses exports with VAT calculation, split by reporting period
 
-**Audit tooling**: `tools/audit_batch.py` - manifest/check/agent-prompts/apply-fixes/verify subcommands over extraction batch xlsx files; structural checks shared with the extractor via `shared/receipt_checks.py`. The `bimonthly-cycle` project skill orchestrates the full cycle. `AUDIT_KNOWLEDGE.personal.md` (untracked) holds personal audit context.
+**Audit tooling**: `tools/audit_batch.py` - manifest/check/agent-prompts/apply-fixes/verify/recurring subcommands over extraction batch xlsx files; structural checks shared with the extractor via `shared/receipt_checks.py`. The `bimonthly-cycle` project skill orchestrates the full cycle. `AUDIT_KNOWLEDGE.personal.md` (untracked) holds personal audit context.
 
 ## Development Commands
 
@@ -30,22 +30,23 @@ cp .env.example .env
 ```bash
 uv run python receipt_extractor.py /path/to/receipts/folder
 
-# With options:
-uv run python receipt_extractor.py /path/to/receipts --concurrent 3 --receipts-per-file 5 --output ./output
+# With options (--period flags receipts outside the reporting period):
+uv run python receipt_extractor.py /path/to/receipts --period 2026-05 --concurrent 3 --receipts-per-file 5 --output ./output --model gpt-5-mini
 ```
 
 **Stage 2 - Consolidate to iCount format:**
 ```bash
 uv run python receipt_consolidator.py path/to/excel1.xlsx path/to/excel2.xlsx
 
-# With custom output:
-uv run python receipt_consolidator.py *.xlsx --output ./consolidated
+# With custom output (--receipts-source-dir adds a fallback folder for locating originals):
+uv run python receipt_consolidator.py *.xlsx --output ./consolidated --receipts-source-dir /path/to/originals
 ```
 
 **VAT Report - Generate bi-monthly report:**
 ```bash
 uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --output ./output
-# Both --income and --expenses are optional (but not both)
+# Both --income and --expenses are optional (but not both).
+# The income-tax advance rate comes from config.personal.yaml; --advance-rate overrides it.
 ```
 
 ### Dependencies
@@ -76,6 +77,9 @@ uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expe
 
 ### Configuration
 - `.env` file for API keys and processing parameters
+- `config.personal.yaml` (untracked; template in `config.example.yaml`): non-secret personal config — `income_tax_advance_rate`, `own_tax_ids`
+- `recurring_vendors.personal.yaml` (untracked; template in `recurring_vendors.example.yaml`): vendors expected every period, checked by `audit_batch recurring`
+- `config/excel_layout.yaml`: review-workbook cell layout shared by generator and parsers
 - Default model: gpt-5-mini (configurable)
 - Concurrent request limits and batch sizes
 
@@ -90,9 +94,9 @@ The system handles Israeli-specific tax requirements:
 ## Important Notes
 
 - Windows console uses cp1252 encoding — use `PYTHONIOENCODING=utf-8` when printing Hebrew/Unicode from Python CLI
-- iCount exports: income date column is DD/MM/YYYY string (col C), expenses date column is datetime (col F)
+- iCount exports: date columns are located by header text (תאריך / תאריך ערך); the income date is a DD/MM/YYYY string, the expenses date a datetime
 - iCount expenses already include pre-calculated deductibility in "מע"מ מוכר" column — use those values directly
-- Tests: `uv run pytest tests/` (covers receipt_checks, audit_batch, and the image_handler raster-PDF gate; no coverage for the live OpenAI API paths)
+- Tests: `uv run pytest tests/` (covers receipt_checks, audit_batch, extractor warnings, consolidator parsing, personal_config, personal_backup, and the image_handler raster-PDF gate; no coverage for the live OpenAI API paths)
 - Raster-only PDFs (no text layer + embedded bitmap, e.g. Weezmo receipts) are detected by `ImageHandler.extraction_bitmap`, which sends the crisp embedded bitmap (via poppler's `pdfimages`) to both the API and the Excel review image instead of the raw PDF; normal text-layer PDFs keep the raw-PDF path. Needs `pdftotext`/`pdfimages` on PATH.
 - No linting/formatting tools configured
 - Logs are stored in `llm_logs/` directories with YAML format
@@ -107,9 +111,10 @@ The gitignored `*.personal.*` files are version-tracked in place by a private ov
 repo at `.git-personal/` (see `docs/PERSONAL_BACKUP.md`). Key facts:
 
 - `git personal <cmd>` (alias) drives the overlay: `git personal log/diff/status`.
-- Backups run automatically via `.githooks/post-commit` and a Claude Code hook in
-  `.claude/settings.json`; both call `uv run python tools/personal_backup.py backup`
-  and are silent no-ops if `.git-personal/` is absent.
+- Backups run automatically via `.githooks/post-commit` (runs `tools/personal_backup.py
+  backup` with the venv python) and a Claude Code hook in `.claude/settings.json`
+  (runs `uv run python tools/personal_backup.py backup --claude-hook`); both are
+  silent no-ops if `.git-personal/` is absent.
 - Fresh machine: `uv run python tools/personal_backup.py setup` restores the files.
 - Never run `git personal clean -x` — it would treat the whole project as removable.
 - Never commit personal content to THIS repo; the `*.personal.*` gitignore glob and
