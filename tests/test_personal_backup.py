@@ -151,3 +151,74 @@ class TestSetup:
         (project / "AUDIT.personal.md").write_text("audit v1\n")
         r = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
         assert r.returncode == 0, r.stderr
+
+
+def remote_head_subject(remote, env):
+    return git("--git-dir", str(remote), "log", "-1", "--format=%s",
+               cwd=remote.parent, env=env).stdout.strip()
+
+
+def remote_commit_count(remote, env):
+    return int(git("--git-dir", str(remote), "rev-list", "--count", "main",
+                   cwd=remote.parent, env=env).stdout.strip())
+
+
+def remote_file(remote, rel, env):
+    return git("--git-dir", str(remote), "show", f"main:{rel}",
+               cwd=remote.parent, env=env).stdout
+
+
+@pytest.fixture
+def overlay_project(project, private_remote, env):
+    r = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+    assert r.returncode == 0, r.stderr
+    return project
+
+
+class TestBackup:
+    def test_backup_commits_and_pushes_changed_personal_file(
+        self, overlay_project, private_remote, env
+    ):
+        (overlay_project / "AUDIT.personal.md").write_text("audit v2\n")
+        r = run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert r.returncode == 0, r.stderr
+        assert remote_head_subject(private_remote, env) == "backup: personal files"
+        assert remote_file(private_remote, "AUDIT.personal.md", env) == "audit v2\n"
+
+    def test_backup_picks_up_new_personal_file(self, overlay_project, private_remote, env):
+        (overlay_project / "NEW.personal.yaml").write_text("k: v\n")
+        run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert remote_file(private_remote, "NEW.personal.yaml", env) == "k: v\n"
+
+    def test_backup_without_changes_creates_no_commit(
+        self, overlay_project, private_remote, env
+    ):
+        before = remote_commit_count(private_remote, env)
+        r = run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert r.returncode == 0, r.stderr
+        assert remote_commit_count(private_remote, env) == before
+
+    def test_backup_after_setup_keeps_personal_readme_on_remote(
+        self, overlay_project, private_remote, env
+    ):
+        # README.personal.md is a normal materialized personal file; a no-op backup
+        # must not stage a spurious change/deletion that alters it on the remote.
+        run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert remote_file(private_remote, "README.personal.md", env) == "# private backup readme\n"
+
+    def test_backup_unstages_non_personal_paths(self, overlay_project, private_remote, env):
+        (overlay_project / "stray.txt").write_text("not personal\n")
+        git("--git-dir", str(overlay_project / ".git-personal"),
+            "--work-tree", str(overlay_project),
+            "add", "-f", "stray.txt", cwd=overlay_project, env=env)
+        (overlay_project / "AUDIT.personal.md").write_text("audit v3\n")
+        run_script("backup", "--wait", cwd=overlay_project, env=env)
+        files = git("--git-dir", str(private_remote), "ls-tree", "-r", "--name-only", "main",
+                    cwd=private_remote.parent, env=env).stdout.splitlines()
+        assert "stray.txt" not in files
+        assert remote_file(private_remote, "AUDIT.personal.md", env) == "audit v3\n"
+
+    def test_backup_writes_log(self, overlay_project, env):
+        (overlay_project / "AUDIT.personal.md").write_text("audit v4\n")
+        run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert (overlay_project / ".git-personal" / "backup.log").exists()
