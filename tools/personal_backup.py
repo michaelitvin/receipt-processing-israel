@@ -129,6 +129,9 @@ def cmd_backup(root: Path, wait: bool = False) -> int:
         detail = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
         _log(log_path, f"ERROR: {exc.cmd}: {detail}")
         print(f"personal_backup: error logged to {log_path}", file=sys.stderr)
+    except Exception as exc:  # a backup must NEVER break a commit or a Claude session
+        _log(log_path, f"ERROR: {exc!r}")
+        print(f"personal_backup: error logged to {log_path}", file=sys.stderr)
     return 0
 
 
