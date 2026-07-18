@@ -1,6 +1,9 @@
 # Receipt Processing System
 ## Product Requirements Document
 
+> **Historical snapshot (September 2025).** Requirements here reflect the
+> original design; `README.md` and `CLAUDE.md` describe current behavior.
+
 ### Version: 2.0
 ### Date: September 11, 2025
 
