@@ -44,6 +44,9 @@ output/
 # Any *.personal.* is untracked - real values never reach the public repo.
 *.personal.*
 
+# Private overlay repo tracking the personal files (see docs/PERSONAL_BACKUP.md)
+.git-personal/
+
 # SSH Keys - Never commit these
 github-key-*
 

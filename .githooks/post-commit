@@ -1,0 +1,14 @@
+#!/bin/sh
+# Auto-backup *.personal.* files to the private overlay repo (docs/PERSONAL_BACKUP.md).
+# Active only on clones that ran personal_backup.py setup (it sets core.hooksPath).
+# Must never fail the commit: always exits 0.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+[ -d .git-personal ] || exit 0
+PY="${PERSONAL_BACKUP_PYTHON:-}"
+if [ -z "$PY" ]; then
+    if [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe
+    elif [ -x .venv/bin/python ]; then PY=.venv/bin/python
+    else PY="$(command -v python3 || command -v python)"; fi
+fi
+[ -n "$PY" ] && "$PY" tools/personal_backup.py backup
+exit 0
