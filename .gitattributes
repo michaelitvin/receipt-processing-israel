@@ -1,0 +1,4 @@
+# The post-commit shim is a POSIX sh script executed by git's shell; it MUST keep
+# LF line endings in the working tree on every platform (a fresh clone with
+# core.autocrlf=true would otherwise rewrite it to CRLF and break `#!/bin/sh`).
+.githooks/post-commit text eol=lf
