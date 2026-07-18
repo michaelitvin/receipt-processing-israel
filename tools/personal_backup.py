@@ -156,6 +156,18 @@ def _blob_bytes(root: Path, rel: str) -> bytes:
     return out.stdout
 
 
+def cmd_claude_hook(root: Path, wait: bool = False) -> int:
+    try:
+        payload = json.load(sys.stdin)
+        file_path = str(payload.get("tool_input", {}).get("file_path", ""))
+    except Exception:
+        return 0
+    name = file_path.replace("\\", "/").rsplit("/", 1)[-1]
+    if not fnmatch.fnmatch(name, PERSONAL_GLOB):
+        return 0
+    return cmd_backup(root, wait=wait)
+
+
 def cmd_setup(root: Path, remote: str, force: bool) -> int:
     overlay = root / OVERLAY_DIR
 
@@ -215,6 +227,8 @@ def main(argv=None) -> int:
 
     root = repo_root()
     if args.cmd == "backup":
+        if args.claude_hook:
+            return cmd_claude_hook(root, wait=args.wait)
         return cmd_backup(root, wait=args.wait)
     if root is None:
         print("error: not inside a git repository", file=sys.stderr)

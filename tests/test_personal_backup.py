@@ -229,3 +229,29 @@ class TestBackup:
         (overlay_project / "AUDIT.personal.md").write_text("audit v4\n")
         run_script("backup", "--wait", cwd=overlay_project, env=env)
         assert (overlay_project / ".git-personal" / "backup.log").exists()
+
+
+class TestClaudeHook:
+    def test_non_personal_edit_does_not_trigger_backup(
+        self, overlay_project, private_remote, env
+    ):
+        (overlay_project / "AUDIT.personal.md").write_text("pending change\n")
+        payload = json.dumps({"tool_input": {"file_path": str(overlay_project / "app.py")}})
+        r = run_script("backup", "--claude-hook", "--wait",
+                       cwd=overlay_project, env=env, stdin=payload)
+        assert r.returncode == 0
+        assert remote_file(private_remote, "AUDIT.personal.md", env) == "audit v1\n"
+
+    def test_personal_edit_triggers_backup(self, overlay_project, private_remote, env):
+        (overlay_project / "AUDIT.personal.md").write_text("edited by claude\n")
+        path = str(overlay_project / "AUDIT.personal.md").replace("/", "\\")  # windows-style
+        payload = json.dumps({"tool_input": {"file_path": path}})
+        r = run_script("backup", "--claude-hook", "--wait",
+                       cwd=overlay_project, env=env, stdin=payload)
+        assert r.returncode == 0
+        assert remote_file(private_remote, "AUDIT.personal.md", env) == "edited by claude\n"
+
+    def test_malformed_stdin_exits_zero(self, overlay_project, env):
+        r = run_script("backup", "--claude-hook", cwd=overlay_project, env=env,
+                       stdin="not json at all")
+        assert r.returncode == 0
