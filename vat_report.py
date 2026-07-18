@@ -7,7 +7,6 @@ with 3 worksheets per period: VAT calculation, expenses, incomes.
 """
 
 import argparse
-import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +16,8 @@ from dotenv import load_dotenv
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+
+from shared.personal_config import get_income_tax_advance_rate
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -615,14 +616,14 @@ def main():
     if not args.income and not args.expenses:
         parser.error("At least one of --income or --expenses must be provided")
 
-    # Resolve income tax advance rate (CLI → .env → None)
+    # Resolve income tax advance rate (CLI → config.personal.yaml → None)
     advance_rate = None
     if args.advance_rate is not None:
         advance_rate = args.advance_rate / 100
     else:
-        env_rate = os.getenv("INCOME_TAX_ADVANCE_RATE")
-        if env_rate:
-            advance_rate = float(env_rate) / 100
+        cfg_rate = get_income_tax_advance_rate()
+        if cfg_rate is not None:
+            advance_rate = cfg_rate / 100
 
     # Validate file types match the flags
     for flag, path, expected in [
