@@ -255,3 +255,46 @@ class TestClaudeHook:
         r = run_script("backup", "--claude-hook", cwd=overlay_project, env=env,
                        stdin="not json at all")
         assert r.returncode == 0
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def hooked_project(project, private_remote, env):
+    """Project with the real shim + script installed, overlay set up (which activates
+    core.hooksPath), and the test's python forced via PERSONAL_BACKUP_PYTHON."""
+    tools = project / "tools"
+    tools.mkdir()
+    (tools / "personal_backup.py").write_bytes(SCRIPT.read_bytes())
+    hooks = project / ".githooks"
+    hooks.mkdir()
+    (hooks / "post-commit").write_bytes((REPO_ROOT / ".githooks" / "post-commit").read_bytes())
+    r = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+    assert r.returncode == 0, r.stderr
+    env = dict(env)
+    env["PERSONAL_BACKUP_PYTHON"] = sys.executable
+    return project, env
+
+
+class TestPostCommitHook:
+    def test_public_commit_triggers_personal_backup(self, hooked_project, env):
+        project, hook_env = hooked_project
+        (project / "AUDIT.personal.md").write_text("changed alongside code\n")
+        (project / "app.py").write_text("print('v2')\n")
+        git("add", "app.py", cwd=project, env=hook_env)
+        git("commit", "-m", "public change", cwd=project, env=hook_env)
+        subject = git("--git-dir", str(project / ".git-personal"), "log", "-1", "--format=%s",
+                      cwd=project, env=env).stdout.strip()
+        assert subject == "backup: personal files"
+
+    def test_hook_is_noop_without_overlay(self, project, env):
+        # Same shim installed, hooksPath forced, but no .git-personal: commit must succeed.
+        hooks = project / ".githooks"
+        hooks.mkdir()
+        (hooks / "post-commit").write_bytes((REPO_ROOT / ".githooks" / "post-commit").read_bytes())
+        git("config", "core.hooksPath", ".githooks", cwd=project, env=env)
+        (project / "app.py").write_text("print('v3')\n")
+        git("add", "app.py", cwd=project, env=env)
+        git("commit", "-m", "no overlay", cwd=project, env=env)
+        assert not (project / ".git-personal").exists()
