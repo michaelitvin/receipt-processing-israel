@@ -132,3 +132,22 @@ class TestSetup:
         assert overlay_status(project, env) == ""
         assert (project / "README.md").read_text() == "# public readme\n"
         assert git("status", "--porcelain", cwd=project, env=env).stdout == ""
+
+    def test_setup_refuses_to_overwrite_differing_local_file(self, project, private_remote, env):
+        (project / "AUDIT.personal.md").write_text("local newer edits\n")
+        r = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert r.returncode == 1
+        assert "AUDIT.personal.md" in r.stderr
+        assert (project / "AUDIT.personal.md").read_text() == "local newer edits\n"
+
+    def test_setup_force_overwrites_with_backup_version(self, project, private_remote, env):
+        (project / "AUDIT.personal.md").write_text("local newer edits\n")
+        r = run_script("setup", "--remote", str(private_remote), "--force",
+                       cwd=project, env=env)
+        assert r.returncode == 0, r.stderr
+        assert (project / "AUDIT.personal.md").read_text() == "audit v1\n"
+
+    def test_setup_accepts_identical_local_files(self, project, private_remote, env):
+        (project / "AUDIT.personal.md").write_text("audit v1\n")
+        r = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert r.returncode == 0, r.stderr
