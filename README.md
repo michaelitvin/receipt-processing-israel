@@ -184,7 +184,7 @@ This generates:
 ```bash
 uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --output ./output
 # Either --income or --expenses may be omitted (but not both).
-# --advance-rate overrides the income_tax_advance_rate from config.personal.yaml.
+# --advance-rate overrides the income_tax_advance_rate from CONFIG.personal.yaml.
 ```
 
 ## 📋 Technical Details
@@ -197,7 +197,7 @@ uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expe
 
 ### Template System
 - **Jinja2 templates** for maintainable prompts
-- Full `ICOUNT_CATEGORIES.md` content included in prompts
+- Full `icount-categories.md` content included in prompts
 - VAT rates, deductibility rules, and sorting codes
 - Single source of truth for tax categorization
 
@@ -234,7 +234,7 @@ receipt_processing_system/
 │   ├── excel_generator.py        # Excel file creation
 │   ├── excel_config.py           # Review-workbook layout (config/excel_layout.yaml)
 │   ├── receipt_checks.py         # Structural checks shared by extractor and audit
-│   ├── personal_config.py        # config.personal.yaml loader
+│   ├── personal_config.py        # CONFIG.personal.yaml loader
 │   └── logger.py                 # YAML logging utilities
 ├── tools/
 │   ├── audit_batch.py            # Audit subcommands over extraction batches
@@ -245,21 +245,21 @@ receipt_processing_system/
 │   ├── receipt_extraction_prompt.j2   # OpenAI prompt template
 │   └── receipt_extraction_schema.json # JSON schema for structured output
 ├── docs/                         # Documentation
-│   ├── extraction-prompt/        # Prompt sources (001-ICOUNT_CATEGORIES.md, ...)
-│   ├── PERSONAL_BACKUP.md        # Personal-files overlay backup
-│   ├── PRODUCT_REQUIREMENTS.md   # Product requirements (historical)
-│   ├── TECHNICAL_SPEC.md         # Technical specifications (historical)
-│   └── iCount-Expenses-sample.xls # Sample iCount export
+│   ├── extraction-prompt/        # Prompt sources (001-icount-categories.md, ...)
+│   ├── personal-backup.md        # Personal-files overlay backup
+│   ├── product-requirements.md   # Product requirements (historical)
+│   ├── technical-spec.md         # Technical specifications (historical)
+│   └── icount-expenses-sample.xls # Sample iCount export
 ├── tests/                        # pytest suite (uv run pytest tests/)
-├── config.example.yaml           # Template for config.personal.yaml
-├── recurring_vendors.example.yaml # Template for recurring_vendors.personal.yaml
+├── CONFIG.example.yaml           # Template for CONFIG.personal.yaml
+├── RECURRING_VENDORS.example.yaml # Template for RECURRING_VENDORS.personal.yaml
 ├── pyproject.toml                # Dependencies (managed with uv)
 └── .env.example                  # Environment configuration template
 ```
 
 Untracked `*.personal.*` files (audit knowledge, prompt additions, personal
 config) are version-tracked in place by a private overlay repo — see
-`docs/PERSONAL_BACKUP.md`.
+`docs/personal-backup.md`.
 
 ## 📈 Israeli Tax Categories
 
@@ -291,12 +291,12 @@ RECEIPTS_PER_FILE=100                 # Optional: Receipts per Excel file
 
 ### Personal Configuration (optional)
 
-- `config.personal.yaml` (copy `config.example.yaml`): income-tax advance rate,
+- `CONFIG.personal.yaml` (copy `CONFIG.example.yaml`): income-tax advance rate,
   the business's own tax ids (flagged if extracted as a vendor id)
-- `recurring_vendors.personal.yaml` (copy `recurring_vendors.example.yaml`):
+- `RECURRING_VENDORS.personal.yaml` (copy `RECURRING_VENDORS.example.yaml`):
   vendors expected every period, checked by `tools/audit_batch.py recurring`
 
-Both are gitignored; see `docs/PERSONAL_BACKUP.md` for how they are backed up.
+Both are gitignored; see `docs/personal-backup.md` for how they are backed up.
 
 ### Command Line Options
 
@@ -315,7 +315,7 @@ Both are gitignored; see `docs/PERSONAL_BACKUP.md` for how they are backed up.
 **vat_report.py:**
 - `--income` / `--expenses`: iCount export files (either may be omitted, not both)
 - `--output`: Output directory
-- `--advance-rate`: Income-tax advance rate in percent (overrides config.personal.yaml)
+- `--advance-rate`: Income-tax advance rate in percent (overrides CONFIG.personal.yaml)
 
 ## 🐛 Troubleshooting
 
@@ -331,7 +331,7 @@ Both are gitignored; see `docs/PERSONAL_BACKUP.md` for how they are backed up.
 
 3. **Template Loading Errors**
    - Verify `prompts/` directory exists
-   - Check `docs/extraction-prompt/001-ICOUNT_CATEGORIES.md` is present
+   - Check `docs/extraction-prompt/001-icount-categories.md` is present
 
 ### Log Analysis
 - Check YAML logs in `llm_logs/` directories
@@ -340,10 +340,10 @@ Both are gitignored; see `docs/PERSONAL_BACKUP.md` for how they are backed up.
 
 ## 📄 Documentation
 
-- **Personal Files Backup**: `docs/PERSONAL_BACKUP.md`
-- **Israeli Tax Categories**: `docs/extraction-prompt/001-ICOUNT_CATEGORIES.md`
-- **Product Requirements** (historical): `docs/PRODUCT_REQUIREMENTS.md`
-- **Technical Specifications** (historical): `docs/TECHNICAL_SPEC.md`
+- **Personal Files Backup**: `docs/personal-backup.md`
+- **Israeli Tax Categories**: `docs/extraction-prompt/001-icount-categories.md`
+- **Product Requirements** (historical): `docs/product-requirements.md`
+- **Technical Specifications** (historical): `docs/technical-spec.md`
 
 ## 🔒 Security & Privacy
 

@@ -466,7 +466,7 @@ def batch(tmp_path_factory):
                       [{"description": "ריק", "amount_excl_vat": 0, "vat": 0,
                         "total": 0, "deductible": True}]),
     ]
-    gen = ExcelGenerator(REPO / "docs" / "extraction-prompt" / "001-ICOUNT_CATEGORIES.md")
+    gen = ExcelGenerator(REPO / "docs" / "extraction-prompt" / "001-icount-categories.md")
     wb = gen.create_batch_workbook(receipts, images)
     xlsx = tmp / "batch.xlsx"
     wb.save(xlsx)

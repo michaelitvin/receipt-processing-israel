@@ -46,7 +46,7 @@ Steps (`BATCH` = the batch xlsx path):
    recurring receipt (mobile carrier, internet, water, electricity, ...) was never
    collected; tell the user to locate it before consolidating. If a vendor is
    wrongly reported missing (its name/id changed) or a genuinely new recurring
-   vendor appears, propose an edit to `recurring_vendors.personal.yaml` per the
+   vendor appears, propose an edit to `RECURRING_VENDORS.personal.yaml` per the
    caution in Phase 8 - do not edit it silently.
 2. `uv run python tools/audit_batch.py agent-prompts BATCH --scratch <session scratchpad>`
    then dispatch each prompt to a general-purpose subagent (parallel, background).
@@ -112,7 +112,7 @@ folder).
 2. `uv run python vat_report.py -i <income.xlsx> -e <expenses.xlsx> -o ./output`
    (either file may be omitted, but not both).
    - The income-tax advance rate is read from `income_tax_advance_rate` in
-     `config.personal.yaml` automatically; pass `--advance-rate` only to override it.
+     `CONFIG.personal.yaml` automatically; pass `--advance-rate` only to override it.
    - It auto-detects the reporting period(s) and splits the report per period.
      Confirm the printed "Found N reporting period(s)" matches the period you
      expect before trusting the output.
@@ -136,16 +136,16 @@ propose routed updates, each requiring explicit user approval:
 - Extraction steering (categories, deductibility, vendor rules) →
   `docs/extraction-prompt/002-ADDITIONAL_INSTRUCTIONS.personal.md`
 - Recurring-vendor set (a new vendor that now bills every period, or a changed
-  name/id that caused a false "missing") → `recurring_vendors.personal.yaml`
+  name/id that caused a false "missing") → `RECURRING_VENDORS.personal.yaml`
   (prefer `ids` for Israeli vendors, `keywords` for foreign ones)
 
 Nothing is written without approval. Do not auto-commit SKILL.md edits -
 show the diff and let the user decide. EXTRA CAUTION for the `*.personal.*`
-files (AUDIT_KNOWLEDGE, 002-ADDITIONAL_INSTRUCTIONS, recurring_vendors): they
+files (AUDIT_KNOWLEDGE, 002-ADDITIONAL_INSTRUCTIONS, RECURRING_VENDORS): they
 hold the user's curated personal context - show the exact change and get
 explicit approval before writing, and never delete existing entries without
 the user confirming. (A bad edit IS recoverable - they are version-tracked by
-the `.git-personal` overlay, `git personal log/diff`; see docs/PERSONAL_BACKUP.md.)
+the `.git-personal` overlay, `git personal log/diff`; see docs/personal-backup.md.)
 
 ## Known traps
 

@@ -47,7 +47,7 @@ def _make_batch(tmp_path, receipts, *, simulate_excel_sums=True):
         stem = Path(r["receipt_info"]["original_file"]).stem
         Image.new("RGB", (800, 1200), "white").save(images / f"{stem}.jpg")
 
-    gen = ExcelGenerator(REPO / "docs" / "extraction-prompt" / "001-ICOUNT_CATEGORIES.md")
+    gen = ExcelGenerator(REPO / "docs" / "extraction-prompt" / "001-icount-categories.md")
     wb = gen.create_batch_workbook(receipts, images)
 
     if simulate_excel_sums:

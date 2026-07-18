@@ -82,7 +82,7 @@ class ReceiptExtractor:
         # Initialize components
         self.openai_client = OpenAIClient(api_key, model)
         # Pass the categories file to ExcelGenerator for category validation (dropdown)
-        categories_file = self.extraction_prompt_dir / '001-ICOUNT_CATEGORIES.md'
+        categories_file = self.extraction_prompt_dir / '001-icount-categories.md'
         self.excel_generator = ExcelGenerator(categories_file)
         
         # Setup output directories

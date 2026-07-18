@@ -8,7 +8,7 @@ from shared import personal_config as pc
 
 
 def _write(tmp_path, monkeypatch, text):
-    f = tmp_path / "config.personal.yaml"
+    f = tmp_path / "CONFIG.personal.yaml"
     f.write_text(text, encoding="utf-8")
     monkeypatch.setattr(pc, "PERSONAL_CONFIG_FILE", f)
     return f

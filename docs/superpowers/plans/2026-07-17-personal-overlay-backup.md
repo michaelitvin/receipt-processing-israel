@@ -150,7 +150,7 @@ Create `tools/personal_backup.py`:
 
 A second git-dir (.git-personal/) shares this project's working tree and tracks
 ONLY *.personal.* files, pushing to the private backup repo. See
-docs/PERSONAL_BACKUP.md for the full mechanism. Stdlib only.
+docs/personal-backup.md for the full mechanism. Stdlib only.
 
 Commands:
     backup [--wait] [--claude-hook]   stage/commit personal changes, async push
@@ -839,7 +839,7 @@ Create `.githooks/post-commit` (LF line endings, no BOM):
 
 ```sh
 #!/bin/sh
-# Auto-backup *.personal.* files to the private overlay repo (docs/PERSONAL_BACKUP.md).
+# Auto-backup *.personal.* files to the private overlay repo (docs/personal-backup.md).
 # Active only on clones that ran personal_backup.py setup (it sets core.hooksPath).
 # Must never fail the commit: always exits 0.
 cd "$(git rev-parse --show-toplevel)" || exit 0
@@ -883,7 +883,7 @@ regardless of the hook's cwd:
 Append to `.gitignore`, directly under the existing `*.personal.*` line:
 
 ```
-# Private overlay repo tracking the personal files (see docs/PERSONAL_BACKUP.md)
+# Private overlay repo tracking the personal files (see docs/personal-backup.md)
 .git-personal/
 ```
 
@@ -909,14 +909,14 @@ git commit -m "feat: wire personal backup triggers - post-commit shim and Claude
 ### Task 7: Public documentation
 
 **Files:**
-- Create: `docs/PERSONAL_BACKUP.md`
+- Create: `docs/personal-backup.md`
 - Modify: `CLAUDE.md` (add a section after "Important Notes")
 
 **Interfaces:**
 - Consumes: everything built in Tasks 1–6 (documents it).
 - Produces: the discoverability guarantee — a fresh clone (human or Claude Code) learns the overlay exists and how to use it. NO personal content; mechanism only.
 
-- [ ] **Step 1: Create `docs/PERSONAL_BACKUP.md`**
+- [ ] **Step 1: Create `docs/personal-backup.md`**
 
 ```markdown
 # Personal Files Backup (Overlay Repo)
@@ -993,7 +993,7 @@ Append to `CLAUDE.md` after the "Important Notes" section:
 ## Personal Files Backup
 
 The gitignored `*.personal.*` files are version-tracked in place by a private overlay
-repo at `.git-personal/` (see `docs/PERSONAL_BACKUP.md`). Key facts:
+repo at `.git-personal/` (see `docs/personal-backup.md`). Key facts:
 
 - `git personal <cmd>` (alias) drives the overlay: `git personal log/diff/status`.
 - Backups run automatically via `.githooks/post-commit` and a Claude Code hook in
@@ -1007,12 +1007,12 @@ repo at `.git-personal/` (see `docs/PERSONAL_BACKUP.md`). Key facts:
 
 - [ ] **Step 3: Verify docs mention no personal content**
 
-Run: `grep -iE "michael|litvin|@gmail" docs/PERSONAL_BACKUP.md` — expected: matches only the two GitHub repo URLs (`michaelitvin/...`), which are already public. No other personal facts.
+Run: `grep -iE "michael|litvin|@gmail" docs/personal-backup.md` — expected: matches only the two GitHub repo URLs (`michaelitvin/...`), which are already public. No other personal facts.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/PERSONAL_BACKUP.md CLAUDE.md
+git add docs/personal-backup.md CLAUDE.md
 git commit -m "docs: document the personal-files overlay backup"
 ```
 
@@ -1046,7 +1046,7 @@ it is one of the tracked `*.personal.*` files and never collides with the public
 own `README.md` in the shared working tree. Every file tracked here matches
 `*.personal.*`.
 
-Full mechanism docs live in the public repo: `docs/PERSONAL_BACKUP.md`.
+Full mechanism docs live in the public repo: `docs/personal-backup.md`.
 
 ## Recovery on a fresh machine
 
@@ -1078,7 +1078,7 @@ git push
 git ls-tree -r --name-only origin/main
 ```
 Expected: EVERY path matches `*.personal.*` (e.g. `README.personal.md`,
-`AUDIT_KNOWLEDGE.personal.md`, `recurring_vendors.personal.yaml`,
+`AUDIT_KNOWLEDGE.personal.md`, `RECURRING_VENDORS.personal.yaml`,
 `docs/extraction-prompt/002-ADDITIONAL_INSTRUCTIONS.personal.md`) — no `README.md`, no
 `sync-personal.ps1`, nothing else. This gate protects the public worktree during Task 9.
 

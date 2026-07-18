@@ -46,7 +46,7 @@ uv run python receipt_consolidator.py *.xlsx --output ./consolidated --receipts-
 ```bash
 uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --output ./output
 # Both --income and --expenses are optional (but not both).
-# The income-tax advance rate comes from config.personal.yaml; --advance-rate overrides it.
+# The income-tax advance rate comes from CONFIG.personal.yaml; --advance-rate overrides it.
 ```
 
 ### Dependencies
@@ -66,7 +66,7 @@ uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expe
 
 ### Prompt System
 - Templates in `prompts/`: Uses Jinja2 for maintainable prompts
-- Category definitions in `docs/extraction-prompt/001-ICOUNT_CATEGORIES.md`: Full Israeli tax categories with VAT rates and deductibility rules
+- Category definitions in `docs/extraction-prompt/001-icount-categories.md`: Full Israeli tax categories with VAT rates and deductibility rules
 - JSON schema in `prompts/receipt_extraction_schema.json`: Enforces structured output from OpenAI
 
 ### Data Classes (in `shared/openai_client.py`)
@@ -77,8 +77,8 @@ uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expe
 
 ### Configuration
 - `.env` file for API keys and processing parameters
-- `config.personal.yaml` (untracked; template in `config.example.yaml`): non-secret personal config — `income_tax_advance_rate`, `own_tax_ids`
-- `recurring_vendors.personal.yaml` (untracked; template in `recurring_vendors.example.yaml`): vendors expected every period, checked by `audit_batch recurring`
+- `CONFIG.personal.yaml` (untracked; template in `CONFIG.example.yaml`): non-secret personal config — `income_tax_advance_rate`, `own_tax_ids`
+- `RECURRING_VENDORS.personal.yaml` (untracked; template in `RECURRING_VENDORS.example.yaml`): vendors expected every period, checked by `audit_batch recurring`
 - `config/excel_layout.yaml`: review-workbook cell layout shared by generator and parsers
 - Default model: gpt-5-mini (configurable)
 - Concurrent request limits and batch sizes
@@ -90,6 +90,40 @@ The system handles Israeli-specific tax requirements:
 - Document types: Invoice, Receipt, or Invoice+Receipt
 - Deductibility rules for home office, vehicles, and mixed expenses
 - iCount category mappings with sorting codes
+
+## Filename Casing
+
+- **Dotted-infix family** (`*.example.*`, `*.personal.*`): SCREAMING_SNAKE body,
+  lowercase infix — `CONFIG.personal.yaml`, `RECURRING_VENDORS.example.yaml`,
+  `AUDIT_KNOWLEDGE.personal.md`, `002-ADDITIONAL_INSTRUCTIONS.personal.md`.
+  The shouting body exists so the lowercase `.personal.` stands out: these are
+  the files that must never reach the public repo. This rule **overrides** the
+  directory conventions below — a `.personal.` file under `docs/` still shouts.
+- `snake_case` for Python modules and other hand-authored YAML/JSON/J2 config
+- `kebab-case` for everything under `docs/` — files and directories alike
+- Root markdown and `LICENSE` keep their conventional SCREAMING names
+  (`README.md`, `CLAUDE.md`); `SKILL.md` and `.githooks/post-commit` are
+  mandated by Claude Code and git. `.env.example` is left alone: it has no
+  trailing extension segment, so it isn't part of the dotted-infix family.
+- Generated artifacts under `llm_logs/` and `receipts_*/` embed the source
+  receipt filename verbatim — deliberately not normalized, since that string is
+  what traces a log back to its receipt
+
+Two naming patterns are load-bearing, not cosmetic:
+
+- The `NNN-` prefix in `docs/extraction-prompt/` sets prompt load order
+  (`shared/openai_client.py` sorts the glob)
+- **The `.personal.` infix must stay lowercase.** It is matched by the
+  `.gitignore` glob and by `PERSONAL_GLOB` in `tools/personal_backup.py`. The
+  body's casing is free (both patterns are `*` + `.personal.` + `*`), but
+  uppercasing the infix itself would stop `.gitignore` matching on a
+  case-sensitive clone and make the file committable to the public repo — a
+  leak, not just a broken link.
+
+Renaming these on Windows: `core.ignorecase=true` on both `.git` and
+`.git-personal`, so a case-only rename needs a two-step `git mv` in the public
+repo, and an explicit `git personal rm --cached` + `git personal add -f` in the
+overlay — a plain `add -u` will silently keep the old name.
 
 ## Important Notes
 
@@ -109,7 +143,7 @@ The system handles Israeli-specific tax requirements:
 ## Personal Files Backup
 
 The gitignored `*.personal.*` files are version-tracked in place by a private overlay
-repo at `.git-personal/` (see `docs/PERSONAL_BACKUP.md`). Key facts:
+repo at `.git-personal/` (see `docs/personal-backup.md`). Key facts:
 
 - `git personal <cmd>` (alias) drives the overlay: `git personal log/diff/status`.
 - Backups run automatically via `.githooks/post-commit` (runs `tools/personal_backup.py

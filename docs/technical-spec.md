@@ -25,7 +25,7 @@ receipt_processing_system/
 │   └── logger.py            # Logging and JSON dumping
 ├── .env                     # Configuration
 ├── requirements.txt
-└── ICOUNT_CATEGORIES.md     # Expense categories
+└── icount-categories.md     # Expense categories
 ```
 
 ### Data Flow
@@ -109,7 +109,7 @@ class OpenAIClient:
         }
     ],
     "classification": {
-        "category": "string",  # From ICOUNT_CATEGORIES.md
+        "category": "string",  # From icount-categories.md
         "confidence": "number"
     }
 }

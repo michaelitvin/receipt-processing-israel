@@ -371,7 +371,7 @@ class ExcelGenerator:
                 
         
     def _load_categories(self) -> List[str]:
-        """Load categories from ICOUNT_CATEGORIES.md file"""
+        """Load categories from icount-categories.md file"""
         categories = []
         
         try:

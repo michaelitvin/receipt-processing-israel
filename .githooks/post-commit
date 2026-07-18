@@ -1,5 +1,5 @@
 #!/bin/sh
-# Auto-backup *.personal.* files to the private overlay repo (docs/PERSONAL_BACKUP.md).
+# Auto-backup *.personal.* files to the private overlay repo (docs/personal-backup.md).
 # Active only on clones that ran personal_backup.py setup (it sets core.hooksPath).
 # Must never fail the commit: always exits 0.
 cd "$(git rev-parse --show-toplevel)" || exit 0

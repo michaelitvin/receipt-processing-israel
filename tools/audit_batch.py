@@ -10,7 +10,7 @@ Subcommands (JSON in/out, UTF-8):
   apply-fixes <xlsx> <fixes.json> --backup-dir DIR
   verify <xlsx>                        post-fix integrity (exit 1 if broken)
   recurring <xlsx>...                   warn if an expected recurring vendor is
-                                        missing (reads recurring_vendors.personal.yaml)
+                                        missing (reads RECURRING_VENDORS.personal.yaml)
 
 fixes.json is a JSON list; each entry is one of:
   {"sheet": "R001", "field": "vendor", "value": "X", "note": "optional"}
@@ -135,7 +135,7 @@ def cmd_manifest(args) -> int:
     return 0
 
 
-RECURRING_VENDORS_FILE = Path(__file__).parent.parent / "recurring_vendors.personal.yaml"
+RECURRING_VENDORS_FILE = Path(__file__).parent.parent / "RECURRING_VENDORS.personal.yaml"
 
 
 def _load_recurring_vendors() -> list:
