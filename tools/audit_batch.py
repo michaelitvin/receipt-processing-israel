@@ -38,7 +38,8 @@ from openpyxl.styles import Alignment, Font
 
 from shared.excel_config import get_excel_config
 from shared.receipt_checks import (check_batch, missing_recurring_vendors,
-                                   parse_own_ids, parse_period)
+                                   parse_period)
+from shared.personal_config import get_own_tax_ids
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
@@ -169,7 +170,7 @@ def cmd_check(args) -> int:
     receipts = parse_batch(args.xlsx)
     _require_sheets(receipts)
     period_months = parse_period(args.period) if args.period else None
-    own_ids = parse_own_ids(os.environ.get("OWN_TAX_IDS"))
+    own_ids = get_own_tax_ids()
     warnings = check_batch(receipts, period_months, own_ids)
     issues = {receipts[i]["sheet"]: w for i, w in warnings.items() if w}
     print(json.dumps(issues, ensure_ascii=False, indent=1))

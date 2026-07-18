@@ -1,0 +1,20 @@
+# Example for config.personal.yaml (copy it, then fill in your values).
+#
+# Non-secret personal config. The real config.personal.yaml is ignored by the
+# public repo and tracked + backed up by the .git-personal overlay (see
+# docs/PERSONAL_BACKUP.md), so these values survive a machine loss. API keys are
+# secrets and stay in .env, which is never backed up.
+#
+# Both settings are optional - omit either and the feature that uses it is skipped.
+
+# Income-tax advance rate (מקדמות מס הכנסה), in percent. Used by vat_report.py to
+# fill the מקדמות מס הכנסה section; override per-run with --advance-rate.
+income_tax_advance_rate: 10
+
+# The business's own tax ids (owner + spouse + company ח.פ). audit_batch check and
+# the extractor flag any receipt whose vendor_id equals one of these (the
+# extractor mistaking your own id for the vendor's). Matching ignores
+# hyphens/spaces and a dropped leading zero.
+own_tax_ids:
+  - "000000000"
+  - "111111111"

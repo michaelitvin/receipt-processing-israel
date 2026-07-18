@@ -37,7 +37,8 @@ sys.path.append(str(Path(__file__).parent))
 
 from shared.openai_client import OpenAIClient, ProcessedReceipt, estimate_cost_usd
 from shared.image_handler import ImageHandler
-from shared.receipt_checks import parse_period, check_batch, parse_own_ids
+from shared.receipt_checks import parse_period, check_batch
+from shared.personal_config import get_own_tax_ids
 from shared.excel_generator import ExcelGenerator
 from shared.logger import ReceiptLogger
 
@@ -73,7 +74,7 @@ class ReceiptExtractor:
         self.receipts_per_file = receipts_per_file
         self.model = model
         self.period_months = parse_period(period) if period else None
-        self.own_ids = parse_own_ids(os.getenv('OWN_TAX_IDS'))
+        self.own_ids = get_own_tax_ids()
         
         # Load extraction prompt directory
         self.extraction_prompt_dir = Path(__file__).parent / 'docs' / 'extraction-prompt'
