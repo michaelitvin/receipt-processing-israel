@@ -4,7 +4,9 @@
 
 **Goal:** Version-track and auto-backup the gitignored `*.personal.*` files in place, via a second git-dir (`.git-personal/`) over the same working tree, pushing to the existing private repo.
 
-**Architecture:** A private "overlay" git-dir shares the project working tree; its `info/exclude` tracks only `*.personal.*` files, and sparse-checkout hides its GitHub `README.md` from the worktree (the public repo has its own). A stdlib-Python script (`tools/personal_backup.py`) implements `backup` (stage → commit → detached async push) and `setup` (clone + configure + restore). Two triggers call `backup`: a tracked sh post-commit shim (active only after `setup` sets `core.hooksPath`) and a Claude Code `PostToolUse` hook.
+**Architecture:** A private "overlay" git-dir shares the project working tree; its `info/exclude` tracks only `*.personal.*` files. The private repo's own front-page/notes file is named `README.personal.md` (not `README.md`), so it is just another `*.personal.*` file — it materializes into the worktree, is editable in place, and never collides with the public repo's `README.md`. No sparse-checkout or skip-worktree exclusion is needed. A stdlib-Python script (`tools/personal_backup.py`) implements `backup` (stage → commit → detached async push) and `setup` (clone + configure + restore). Two triggers call `backup`: a tracked sh post-commit shim (active only after `setup` sets `core.hooksPath`) and a Claude Code `PostToolUse` hook.
+
+> **DESIGN REVISION (2026-07-18, during execution):** The original plan hid the private repo's `README.md` from the shared worktree via `core.sparseCheckout`. Execution proved that mechanism has a data-loss bug — a second `setup` deletes the real public `README.md` from the working tree (git's sparse-checkout refuses to skip a pre-existing conflicting file on the first run, then removes it on the second). The private "front page" README is therefore renamed to `README.personal.md`, eliminating the collision and the entire exclusion mechanism (no `core.sparseCheckout`, no `info/sparse-checkout`, no skip-worktree, no `SPARSE_EXCLUDED` constant). Trade-off accepted by the repo owner: GitHub does not auto-render `README.personal.md` as the private repo's landing page (only exact `readme[.ext]` names render), so the private repo shows a file list instead. Tasks 1, 2, 4, 7, 8, 9 below are revised accordingly; where a task's original code/text conflicts with this note, this note governs.
 
 **Tech Stack:** Python 3.13 stdlib only, POSIX sh, git, pytest (integration tests against real local git repos — no network).
 
@@ -18,7 +20,7 @@ Spec: `docs/superpowers/specs/2026-07-17-personal-overlay-backup-design.md`
 - Git config writes are per-clone only (plain `git config`, never `--global` or `--system`).
 - `backup` (and both hooks) ALWAYS exit 0 — failures are logged to `.git-personal/backup.log`, never break a commit or a Claude session.
 - Private remote: `git@github.com:michaelitvin/receipt-processing-israel-personal.git`, branch `main`.
-- Everything tracked in the private repo must match `*.personal.*`, EXCEPT `README.md` which is sparse-excluded from the worktree.
+- Everything tracked in the private repo matches `*.personal.*` (including `README.personal.md`); there is no worktree-exclusion mechanism.
 - Tests are hermetic: local bare repos as remotes, `GIT_CONFIG_GLOBAL` pointed at a temp gitconfig (`autocrlf=false`, test identity), no network, no dependence on the developer's real config.
 - Test command: `uv run pytest tests/test_personal_backup.py -v` (run the full `uv run pytest tests/` before each commit).
 
@@ -34,7 +36,7 @@ Spec: `docs/superpowers/specs/2026-07-17-personal-overlay-backup-design.md`
 - Consumes: nothing (first task).
 - Produces (used by every later task):
   - CLI: `python tools/personal_backup.py backup [--wait] [--claude-hook]` and `... setup [--remote URL] [--force]` (subcommands wired now; `setup` body lands in Task 2, backup commit/push body in Task 4).
-  - Python internals: `repo_root() -> Path | None`, `scrub_env() -> dict`, `run(args, cwd, check=True, capture=True, binary=False)`, `overlay_git(root, *args, check=True)`, constants `PRIVATE_REMOTE_URL`, `BRANCH = "main"`, `PERSONAL_GLOB = "*.personal.*"`, `SPARSE_EXCLUDED = ("README.md",)`, `OVERLAY_DIR = ".git-personal"`.
+  - Python internals: `repo_root() -> Path | None`, `scrub_env() -> dict`, `run(args, cwd, check=True, capture=True, binary=False)`, `overlay_git(root, *args, check=True)`, constants `PRIVATE_REMOTE_URL`, `BRANCH = "main"`, `PERSONAL_GLOB = "*.personal.*"`, `OVERLAY_DIR = ".git-personal"`. (The originally-committed `SPARSE_EXCLUDED = ("README.md",)` constant is **removed** by the revised Task 2 — see the DESIGN REVISION note; it is no longer used.)
   - Test helpers in `tests/test_personal_backup.py` (module-level, reused by all later tests): `git(*args, cwd, env)`, `run_script(*args, cwd, env, stdin=None)`, fixtures `env`, `private_remote`, `project`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -270,9 +272,21 @@ git commit -m "feat: personal_backup script skeleton with no-op backup safety"
 
 **Interfaces:**
 - Consumes: Task 1 helpers (`run`, `overlay_git`, constants) and test fixtures.
-- Produces: working `setup --remote <url>`; after it runs, `.git-personal/` exists, personal files are restored, `git config alias.personal` and `core.hooksPath=.githooks` are set on the public clone. Helper `_tracked_personal_files(root) -> list[str]` and `_norm(b: bytes) -> bytes` are reused by Task 3.
+- Produces: working `setup --remote <url>`; after it runs, `.git-personal/` exists, personal files (including `README.personal.md`) are restored, `git config alias.personal` and `core.hooksPath=.githooks` are set on the public clone. Helper `_tracked_personal_files(root) -> list[str]` and `_norm(b: bytes) -> bytes` are reused by Task 3.
+- **REVISED (see DESIGN REVISION note):** No `core.sparseCheckout`, no `info/sparse-checkout`, no skip-worktree. This step also **removes** the now-unused `SPARSE_EXCLUDED` constant added by Task 1, and `_tracked_personal_files` returns every tracked file (all are `*.personal.*`, no filtering). The Task 1 `private_remote` fixture is updated to seed `README.personal.md` (not `README.md`).
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1a: Update the `private_remote` fixture (rename the seeded README)**
+
+In the existing `private_remote` fixture (added in Task 1), rename the seeded front-page file from `README.md` to `README.personal.md` (keep the same content). Also update the fixture's docstring wording from "a README.md (GitHub front page)" to "a README.personal.md (private front-page/notes file)":
+
+```python
+    (seed / "README.personal.md").write_text("# private backup readme\n")
+    (seed / "AUDIT.personal.md").write_text("audit v1\n")
+```
+
+(The `project` fixture keeps its own public `README.md` — that file is what must stay untouched.)
+
+- [ ] **Step 1b: Write the failing tests**
 
 Append to `tests/test_personal_backup.py`:
 
@@ -289,7 +303,11 @@ class TestSetup:
         assert (project / "AUDIT.personal.md").read_text() == "audit v1\n"
         assert (project / "docs" / "sub" / "NOTES.personal.md").read_text() == "notes v1\n"
 
-    def test_setup_never_materializes_private_readme(self, project, private_remote, env):
+    def test_setup_restores_personal_readme(self, project, private_remote, env):
+        run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert (project / "README.personal.md").read_text() == "# private backup readme\n"
+
+    def test_setup_leaves_public_readme_untouched(self, project, private_remote, env):
         run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
         assert (project / "README.md").read_text() == "# public readme\n"
 
@@ -305,21 +323,32 @@ class TestSetup:
         hooks = git("config", "core.hooksPath", cwd=project, env=env).stdout.strip()
         assert hooks == ".githooks"
 
-    def test_setup_is_idempotent(self, project, private_remote, env):
+    def test_setup_is_idempotent_and_keeps_public_readme(self, project, private_remote, env):
+        # Two setups must both succeed, leave the overlay clean, and never delete or
+        # modify the public README.md (guards the sparse-checkout data-loss bug the
+        # skip-worktree/README.personal.md redesign fixes).
         r1 = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
         r2 = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
         assert r1.returncode == 0 and r2.returncode == 0, r2.stderr
         assert overlay_status(project, env) == ""
+        assert (project / "README.md").read_text() == "# public readme\n"
+        assert git("status", "--porcelain", cwd=project, env=env).stdout == ""
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_personal_backup.py -v -k TestSetup`
-Expected: 5 FAIL (NotImplementedError → returncode 1).
+Expected: 6 FAIL (NotImplementedError → returncode 1).
 
-- [ ] **Step 3: Implement `cmd_setup`**
+- [ ] **Step 3: Implement `cmd_setup` (and delete the `SPARSE_EXCLUDED` constant)**
 
-In `tools/personal_backup.py`, replace the `cmd_setup` stub with:
+First delete the now-unused constant line from the top of `tools/personal_backup.py`:
+
+```python
+SPARSE_EXCLUDED = ("README.md",)  # on GitHub as the private repo's front page; never in the worktree
+```
+
+Then replace the `cmd_setup` stub with:
 
 ```python
 def _tracked_personal_files(root: Path) -> list[str]:
@@ -328,8 +357,7 @@ def _tracked_personal_files(root: Path) -> list[str]:
          "ls-tree", "-r", "--name-only", "-z", BRANCH],
         cwd=root,
     )
-    names = [n for n in out.stdout.split("\0") if n]
-    return [n for n in names if n not in SPARSE_EXCLUDED]
+    return [n for n in out.stdout.split("\0") if n]
 
 
 def _norm(data: bytes) -> bytes:
@@ -355,15 +383,13 @@ def cmd_setup(root: Path, remote: str, force: bool) -> int:
         (tmp / ".git").rename(overlay)
         shutil.rmtree(tmp)
 
-    # Overlay repo config: worktree is the project root; track only personal files;
-    # keep the private README on GitHub but never in the worktree.
+    # Overlay repo config: worktree is the project root; track only personal files.
+    # The private repo's own README is README.personal.md (a *.personal.* file), so it
+    # never collides with the public README.md — no sparse-checkout/skip-worktree needed.
     overlay_git(root, "config", "core.worktree", "..")
-    overlay_git(root, "config", "core.sparseCheckout", "true")
     info = overlay / "info"
     info.mkdir(exist_ok=True)
     (info / "exclude").write_text(f"*\n!*/\n!{PERSONAL_GLOB}\n", encoding="utf-8")
-    sparse = "/*\n" + "".join(f"!/{name}\n" for name in SPARSE_EXCLUDED)
-    (info / "sparse-checkout").write_text(sparse, encoding="utf-8")
 
     # Public clone config (per-clone, never --global).
     run(["git", "config", "alias.personal", "!git --git-dir=.git-personal --work-tree=."],
@@ -393,13 +419,13 @@ def cmd_setup(root: Path, remote: str, force: bool) -> int:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_personal_backup.py -v`
-Expected: all PASS (7 total). The sparse-checkout test (`test_setup_never_materializes_private_readme`) and `test_setup_leaves_both_repos_clean` are the load-bearing ones — if either fails, the overlay would corrupt the public worktree; do not weaken them to pass.
+Expected: all PASS (8 total). `test_setup_leaves_public_readme_untouched`, `test_setup_leaves_both_repos_clean`, and `test_setup_is_idempotent_and_keeps_public_readme` are the load-bearing ones — if any fails, the overlay would corrupt the public worktree; do not weaken them to pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add tools/personal_backup.py tests/test_personal_backup.py
-git commit -m "feat: personal_backup setup - overlay clone, excludes, sparse README, restore"
+git commit -m "feat: personal_backup setup - overlay clone, excludes, restore (README.personal.md, no sparse-checkout)"
 ```
 
 ---
@@ -512,13 +538,13 @@ class TestBackup:
         assert r.returncode == 0, r.stderr
         assert remote_commit_count(private_remote, env) == before
 
-    def test_backup_after_setup_does_not_delete_sparse_readme(
+    def test_backup_after_setup_keeps_personal_readme_on_remote(
         self, overlay_project, private_remote, env
     ):
-        # The sparse-excluded README is absent from the worktree; add -A must not
-        # stage its deletion and push a commit that removes it from GitHub.
+        # README.personal.md is a normal materialized personal file; a no-op backup
+        # must not stage a spurious change/deletion that alters it on the remote.
         run_script("backup", "--wait", cwd=overlay_project, env=env)
-        assert remote_file(private_remote, "README.md", env) == "# private backup readme\n"
+        assert remote_file(private_remote, "README.personal.md", env) == "# private backup readme\n"
 
     def test_backup_unstages_non_personal_paths(self, overlay_project, private_remote, env):
         (overlay_project / "stray.txt").write_text("not personal\n")
@@ -605,7 +631,7 @@ def cmd_backup(root: Path, wait: bool = False) -> int:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_personal_backup.py -v`
-Expected: all PASS. `test_backup_after_setup_does_not_delete_sparse_readme` guards against the worst regression (a push deleting the private README); if it fails, fix the sparse/skip-worktree handling in `setup`, never the test.
+Expected: all PASS. `test_backup_after_setup_keeps_personal_readme_on_remote` guards that a no-op backup doesn't alter `README.personal.md` on the remote; if it fails, fix the staging logic in `backup`, never the test.
 
 - [ ] **Step 5: Commit**
 
@@ -859,9 +885,13 @@ repos track disjoint file sets and both always show clean status. Plain `git`
 commands always resolve to the public repo; the overlay is reached only via the
 `git personal` alias (set up locally as `git --git-dir=.git-personal --work-tree=.`).
 
-The private repo's own `README.md` lives on GitHub only: sparse-checkout
-(`.git-personal/info/sparse-checkout`) keeps it out of the working tree, where the
-public `README.md` lives. Everything else tracked privately must match `*.personal.*`.
+The private repo's own front-page/notes file is named `README.personal.md`, so it is
+just another `*.personal.*` file — it materializes into the working tree, is editable
+in place, and never collides with the public repo's `README.md`. No sparse-checkout or
+skip-worktree is involved. Everything tracked privately matches `*.personal.*`. (One
+trade-off: GitHub only auto-renders a landing page for a file literally named
+`README.md`/`README`, so the private repo shows a file list rather than a rendered
+`README.personal.md`.)
 
 ## Automatic backups
 
@@ -940,16 +970,16 @@ git commit -m "docs: document the personal-files overlay backup"
 ### Task 8: Rewrite the private repo; retire the sibling clone
 
 **Files (in `D:\code\receipt-processing-israel-personal` — the sibling clone, its last act):**
-- Rewrite: `README.md`
+- Rename + rewrite: `README.md` → `README.personal.md`
 - Delete: `sync-personal.ps1`
 
 **Interfaces:**
 - Consumes: nothing from the codebase; operates on the sibling clone.
-- Produces: private repo `main` whose only non-`*.personal.*` file is `README.md` — the precondition for Task 9's `setup` (any other stray tracked file would materialize into the project worktree on checkout).
+- Produces: private repo `main` whose every tracked file matches `*.personal.*` (including the renamed `README.personal.md`) — the precondition for Task 9's `setup` (any tracked file that did NOT match `*.personal.*` would be committed into the public repo's history when it materializes, or leak; the whole-`*.personal.*` invariant is what keeps the public repo clean).
 
-- [ ] **Step 1: Rewrite the private repo's README.md**
+- [ ] **Step 1: Rewrite the private repo's README as `README.personal.md`**
 
-Replace the full contents of `D:\code\receipt-processing-israel-personal\README.md` with:
+`git mv README.md README.personal.md` (Step 2 does the actual move), then replace the full contents of `README.personal.md` with:
 
 ```markdown
 # receipt-processing-israel — personal files (private)
@@ -960,8 +990,9 @@ repo. Files live at the same relative paths they have in the project.
 
 This repo is consumed as an **overlay**: its git-dir is cloned to `.git-personal/`
 inside the public repo's working tree and tracks the personal files in place — no
-second folder, no copies. This `README.md` exists only on GitHub; sparse-checkout
-keeps it out of the shared working tree. Every other file tracked here MUST match
+second folder, no copies. This file is named `README.personal.md` (not `README.md`) so
+it is one of the tracked `*.personal.*` files and never collides with the public repo's
+own `README.md` in the shared working tree. Every file tracked here matches
 `*.personal.*`.
 
 Full mechanism docs live in the public repo: `docs/PERSONAL_BACKUP.md`.
@@ -979,13 +1010,14 @@ Backups are automatic afterwards (git post-commit hook + Claude Code hook). Manu
 operations: `git personal log/diff/status` from the public repo checkout.
 ```
 
-- [ ] **Step 2: Delete the sync script, commit, push**
+- [ ] **Step 2: Move the README, delete the sync script, commit, push**
 
 ```bash
 cd /d/code/receipt-processing-israel-personal
+git mv README.md README.personal.md   # then apply the Step 1 rewrite to README.personal.md
 git rm sync-personal.ps1
-git add README.md
-git commit -m "restructure: overlay-repo layout - rewrite README, drop copy-based sync script"
+git add README.personal.md
+git commit -m "restructure: overlay-repo layout - README.personal.md, drop copy-based sync script"
 git push
 ```
 
@@ -994,7 +1026,10 @@ git push
 ```bash
 git ls-tree -r --name-only origin/main
 ```
-Expected: exactly `README.md` plus paths matching `*.personal.*` — nothing else. This gate protects the public worktree from stray files materializing during Task 9.
+Expected: EVERY path matches `*.personal.*` (e.g. `README.personal.md`,
+`AUDIT_KNOWLEDGE.personal.md`, `recurring_vendors.personal.yaml`,
+`docs/extraction-prompt/002-ADDITIONAL_INSTRUCTIONS.personal.md`) — no `README.md`, no
+`sync-personal.ps1`, nothing else. This gate protects the public worktree during Task 9.
 
 - [ ] **Step 4: Delete the sibling clone**
 
@@ -1022,7 +1057,7 @@ rm -rf receipt-processing-israel-personal
 cd /d/code/receipt-processing-israel
 uv run python tools/personal_backup.py setup
 ```
-Expected: `Overlay ready: 3 personal file(s) tracked.` (the three current personal files; no conflict errors — local files match the backup pushed earlier).
+Expected: `Overlay ready: 4 personal file(s) tracked.` (the three existing personal files, which already match the backup pushed earlier, plus the newly-renamed `README.personal.md`, which does not yet exist locally and is materialized fresh — no conflict errors).
 
 - [ ] **Step 2: Verify both repos are clean and routed correctly**
 
@@ -1030,7 +1065,8 @@ Expected: `Overlay ready: 3 personal file(s) tracked.` (the three current person
 git status --porcelain            # public: empty (modulo untracked local output dirs)
 git personal status --porcelain   # overlay: empty
 git personal log --oneline        # shows the private repo history
-head -3 README.md                 # still the public README
+head -3 README.md                 # still the PUBLIC README (unchanged)
+head -3 README.personal.md        # the private front-page/notes file, now materialized
 ```
 
 - [ ] **Step 3: End-to-end backup test with a throwaway personal file**
