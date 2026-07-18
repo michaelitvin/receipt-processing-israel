@@ -94,7 +94,7 @@ git-dir has no hooks of its own.
 ## Documentation plan
 
 - **Public repo** (mechanism only — never personal content, per the standing no-PII rule):
-  - `docs/PERSONAL_BACKUP.md`: full mechanism description — overlay mechanics, setup on a fresh
+  - `docs/personal-backup.md`: full mechanism description — overlay mechanics, setup on a fresh
     machine, restore, `git personal` usage, the `clean -x` warning, troubleshooting
     (`backup.log`).
   - `CLAUDE.md`: short section pointing to it, so Claude Code sessions know the overlay exists,
@@ -102,7 +102,7 @@ git-dir has no hooks of its own.
 - **Private repo**:
   - Rewritten `README.md` (replacing the sibling-clone-era one): what the repo holds, the
     overlay design, recovery walkthrough (`clone public → uv sync → setup`), link back to
-    `docs/PERSONAL_BACKUP.md` in the public repo. `sync-personal.ps1` is deleted.
+    `docs/personal-backup.md` in the public repo. `sync-personal.ps1` is deleted.
 
 ## Migration steps
 

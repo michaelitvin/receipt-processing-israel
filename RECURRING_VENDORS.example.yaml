@@ -1,4 +1,4 @@
-# Example for recurring_vendors.personal.yaml (copy it, then fill in your vendors).
+# Example for RECURRING_VENDORS.personal.yaml (copy it, then fill in your vendors).
 # Vendors expected in EVERY reporting period. `audit_batch recurring <batch>...`
 # warns when a vendor matches NO receipt across the batches you pass - catching a
 # recurring receipt that was never collected/extracted.

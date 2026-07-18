@@ -3,7 +3,7 @@
 
 A second git-dir (.git-personal/) shares this project's working tree and tracks
 ONLY *.personal.* files, pushing to the private backup repo. See
-docs/PERSONAL_BACKUP.md for the full mechanism. Stdlib only.
+docs/personal-backup.md for the full mechanism. Stdlib only.
 
 Commands:
     backup [--wait] [--claude-hook]   stage/commit personal changes, async push

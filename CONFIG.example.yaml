@@ -1,8 +1,8 @@
-# Example for config.personal.yaml (copy it, then fill in your values).
+# Example for CONFIG.personal.yaml (copy it, then fill in your values).
 #
-# Non-secret personal config. The real config.personal.yaml is ignored by the
+# Non-secret personal config. The real CONFIG.personal.yaml is ignored by the
 # public repo and tracked + backed up by the .git-personal overlay (see
-# docs/PERSONAL_BACKUP.md), so these values survive a machine loss. API keys are
+# docs/personal-backup.md), so these values survive a machine loss. API keys are
 # secrets and stay in .env, which is never backed up.
 #
 # Both settings are optional - omit either and the feature that uses it is skipped.

@@ -649,7 +649,7 @@ def main():
     if not args.income and not args.expenses:
         parser.error("At least one of --income or --expenses must be provided")
 
-    # Resolve income tax advance rate (CLI → config.personal.yaml → None)
+    # Resolve income tax advance rate (CLI → CONFIG.personal.yaml → None)
     advance_rate = None
     if args.advance_rate is not None:
         advance_rate = args.advance_rate / 100

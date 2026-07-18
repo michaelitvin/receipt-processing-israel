@@ -128,10 +128,10 @@ Location: Columns A-G, Starting Row 21 (Headers at Row 20)
 
 ### Receipt-Level Classification
 
-**Category Dropdown** (from `ICOUNT_CATEGORIES.md`):
+**Category Dropdown** (from `icount-categories.md`):
 - Pre-defined expense categories with VAT and income tax rates
 - Use category name in the dropdown
-- Use the content of `ICOUNT_CATEGORIES.md` in the LLM prompt
+- Use the content of `icount-categories.md` in the LLM prompt
 
 **Classification Logic**:
 - AI will suggest category based on vendor and item description
@@ -181,7 +181,7 @@ receipts_extracted/
 ### AI Processing
 - **Model**: OpenAI gpt-5-mini
 - **Structured Output**: Use `response_format` parameter for JSON schema validation (see https://platform.openai.com/docs/guides/structured-outputs)
-- **Extraction and Classification Prompt**: Single call for extraction + classification + document type identification using categories from `ICOUNT_CATEGORIES.md`
+- **Extraction and Classification Prompt**: Single call for extraction + classification + document type identification using categories from `icount-categories.md`
 - **Temperature**: Unsupported in gpt-5-mini
 - **Parallel Processing**: Configurable workers for batch processing
 
@@ -228,7 +228,7 @@ receipts_extracted/
 - Hebrew RTL text support with auto-adjusted column widths
 
 Documentation: https://help.icount.co.il/expenses/import-from-excel/
-Sample file: `iCount-Expenses-sample.xls` in the repo
+Sample file: `icount-expenses-sample.xls` in the repo
 
 | Column | Hebrew Field Name | English Translation | Type | Required | Description |
 |--------|-------------------|-------------------|------|----------|-------------|
@@ -264,7 +264,7 @@ Sample file: `iCount-Expenses-sample.xls` in the repo
 ```
 
 **Category Mapping**: 
-- Receipt categories from `ICOUNT_CATEGORIES.md` map directly to Column C (שם סוג הוצאה)
+- Receipt categories from `icount-categories.md` map directly to Column C (שם סוג הוצאה)
 - Example: "תוכנות ומנויים" for software subscriptions, "משרדיות" for office supplies
 - AI classification will select appropriate category during extraction
 
