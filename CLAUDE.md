@@ -100,3 +100,17 @@ The system handles Israeli-specific tax requirements:
 - All processing is asynchronous with configurable concurrency
 - Consolidation generates true XLS format (Excel 97-2003) using xlwt library for iCount compatibility
 - Receipt files are automatically organized with standardized naming in the consolidation output
+
+## Personal Files Backup
+
+The gitignored `*.personal.*` files are version-tracked in place by a private overlay
+repo at `.git-personal/` (see `docs/PERSONAL_BACKUP.md`). Key facts:
+
+- `git personal <cmd>` (alias) drives the overlay: `git personal log/diff/status`.
+- Backups run automatically via `.githooks/post-commit` and a Claude Code hook in
+  `.claude/settings.json`; both call `uv run python tools/personal_backup.py backup`
+  and are silent no-ops if `.git-personal/` is absent.
+- Fresh machine: `uv run python tools/personal_backup.py setup` restores the files.
+- Never run `git personal clean -x` — it would treat the whole project as removable.
+- Never commit personal content to THIS repo; the `*.personal.*` gitignore glob and
+  the public/private split exist precisely to prevent that.
