@@ -127,8 +127,8 @@ def test_line_items_sum_mismatch_flagged():
 
 
 def test_line_items_sum_match_ok():
-    items = [{"total": 40.00}, {"total": 40.00}]
-    assert check_receipt(make_receipt(net=67.80, vat=9.2, total=80.00, line_items=items)) == []
+    items = [{"total": 40.0}, {"total": 40.0}]
+    assert check_receipt(make_receipt(net=67.80, vat=12.20, total=80.0, line_items=items)) == []
 
 
 # ---- check_batch ----
@@ -1028,11 +1028,11 @@ Expected (exit 1) — at minimum:
 
 - [ ] **Step 3: `manifest` and `agent-prompts` values match the workbook**
 
-Run manifest; spot-check R001 shows number `<misread-receipt-number>` (the original misread — this is the pre-fix file), total `235.99`. Run agent-prompts; confirm the same values appear verbatim in the prompt text.
+Run manifest; spot-check R001 shows number `<misread-receipt-number>` (the original misread — this is the pre-fix file), total `<recorded-total>`. Run agent-prompts; confirm the same values appear verbatim in the prompt text.
 
 - [ ] **Step 4: Replay session fixes via `apply-fixes` + `verify`**
 
-Build `fixes.json` reproducing the session's R001/R002/R011 corrections (number `<corrected-receipt-number>`, vendor `<fuel-station-vendor>`, R002 vendor_id `<vendor-reg-number>`, R011 full re-entry incl. line item), apply, then `verify` must exit 0 and `check` must no longer flag R011 amounts/date/number (vendor_id warnings for sheets that legitimately lack it may remain).
+Build `fixes.json` reproducing the session's R001/R002/R011 corrections (number `<corrected-receipt-number>`, vendor `<corrected-vendor-name>`, R002 vendor_id `<vendor-reg-number>`, R011 full re-entry incl. line item), apply, then `verify` must exit 0 and `check` must no longer flag R011 amounts/date/number (vendor_id warnings for sheets that legitimately lack it may remain).
 
 - [ ] **Step 5: Record results**
 
@@ -1175,6 +1175,9 @@ git commit -m "feat: bimonthly-cycle skill"
 
 - [ ] **Step 1: Create `AUDIT_KNOWLEDGE.personal.md`**
 
+The file's real content is personal and stays out of this public repo (it is
+seeded from the user's actual audit history). Structure to create:
+
 ```markdown
 # Audit Knowledge (personal, untracked)
 
@@ -1183,31 +1186,19 @@ Known-OK anomalies listed here are NOT findings. Updated via Phase 5 reflection.
 
 ## Business context
 
-- Invoices billed to "the second household member" / "the second entity" (ח.פ/ת.ז <redacted-id>, <town>)
-  belong to this business - not an anomaly. (Confirmed 2026-07.)
-- Apple subscriptions billed to the <redacted-email> Apple account on
-  Michael's Visa are recurring business expenses (a monthly subscription).
+- <billing arrangements that look anomalous but are known-OK, e.g. invoices
+  billed to a second entity that belong to this business>
 
 ## Vendor notes
 
-- Google Cloud EMEA Limited: invoices in USD with 0% VAT (Irish reverse charge)
-  are normal; no ILS equivalent appears on the document. Workspace invoices may
-  be billed to the second entity, Cloud invoices to Michael.
-- AcmeMobile (אקמי): combined bill for two lines; only <the-deductible-line> is deductible
-  (extraction knows via 002 - the audit verifies the split was honored, and that
-  the consolidator will import the deductible portion only).
-- AcmeMobile bills: the document's own number is the מס' חשבון תקופתי, not the
-  filename number; "not a tax invoice until paid" wording on page 5 is normal.
-- <vendor> (<vendor>) → category משרדיות (vendor rule, also in 002).
-- Fuel receipts often arrive via Weezmo as low-res thermal images - the real
-  vendor is the station operator (e.g. <fuel-station-vendor>, ח.פ 000000000;
-  פז קמעונאות ואנרגיה בע"מ, עוסק 000000000).
+- <per-vendor quirks: expected 0%-VAT foreign invoices, combined bills where
+  only some lines are deductible, document-number conventions, fixed
+  vendor→category rules, low-res receipt sources>
 
 ## Known non-expenses
 
-- אישור מוסד ציבורי לפי סעיף 46 (Section 46 charity certificates): a validity
-  certificate, not a receipt - flag non_expense. If a donation was made, the
-  actual donation receipt is a separate document.
+- <document types that look like receipts but are not expenses (e.g. validity
+  certificates) - flag non_expense>
 ```
 
 - [ ] **Step 2: Verify it is untracked**

@@ -84,8 +84,8 @@ def test_line_items_sum_mismatch_flagged():
 
 
 def test_line_items_sum_match_ok():
-    items = [{"total": 40.00}, {"total": 40.00}]
-    assert check_receipt(make_receipt(net=67.80, vat=9.2, total=80.00, line_items=items)) == []
+    items = [{"total": 40.0}, {"total": 40.0}]
+    assert check_receipt(make_receipt(net=67.80, vat=12.20, total=80.0, line_items=items)) == []
 
 
 # ---- Israeli id check digit ----
@@ -176,14 +176,14 @@ def test_check_batch_threads_own_ids():
 # ---- missing recurring vendors ----
 
 RECURRING = [
-    {"name": "Mobile", "keywords": ["אקמי", "AcmeMobile"]},
+    {"name": "Mobile", "keywords": ["אקמי", "Acme Mobile"]},
     {"name": "Internet", "keywords": ["נטקום", "NetCom"]},
     {"name": "Water", "keywords": ["מים לעיר"]},
 ]
 
 
 def test_missing_recurring_vendors_reports_absent_only():
-    receipts = [make_receipt(vendor="AcmeMobile (אקמי)"),
+    receipts = [make_receipt(vendor="Acme Mobile (אקמי)"),
                 make_receipt(vendor='מים לעיר בע"מ')]
     missing = missing_recurring_vendors(receipts, RECURRING)
     assert missing == ["Internet"]  # NetCom absent; Mobile + Water present
