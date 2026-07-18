@@ -104,6 +104,16 @@ COLUMN_SPECS = {
     },
 }
 
+# CPA-facing columns the verbatim sheets reproduce beyond the computed ones above.
+# Their presence is required so an iCount rename/drop fails loudly instead of
+# silently emitting a sheet the CPA can't audit. A column REORDER is always fine -
+# both resolve_columns and the verbatim copy are position-agnostic. Conditional
+# columns (e.g. "ניכוי מס במקור", absent in some periods) are omitted on purpose.
+EXTRA_REQUIRED_COLUMNS = {
+    "income": ["לקוח / ספק", "מספר מסמך", "סוג הכנסה", "סה\"כ כולל מע\"מ"],
+    "expenses": ["ספק", "מס. מסמך", "סכום₪", "הוצאה מוכרת", "קישור"],
+}
+
 # ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
@@ -139,6 +149,28 @@ def resolve_columns(headers: list[str], kind: str) -> dict[str, int]:
             f"Missing required {kind} columns in iCount export: " + ", ".join(missing)
         )
     return resolved
+
+
+def required_columns(kind: str) -> list[str]:
+    """All header names that must be present for `kind`: the computed columns
+    (COLUMN_SPECS) plus the CPA-facing audit columns (EXTRA_REQUIRED_COLUMNS)."""
+    ordered = dict.fromkeys(COLUMN_SPECS[kind].values())
+    ordered.update(dict.fromkeys(EXTRA_REQUIRED_COLUMNS[kind]))
+    return list(ordered)
+
+
+def require_columns(headers: list[str], kind: str) -> None:
+    """Raise ValueError naming every required `kind` column absent from `headers`.
+
+    Adapts to reordering (membership test, not position); fails loudly on a
+    renamed or dropped column so we never emit a silently-wrong/incomplete report.
+    """
+    missing = [h for h in required_columns(kind) if h not in headers]
+    if missing:
+        raise ValueError(
+            f"Missing required {kind} columns in iCount export: "
+            + ", ".join(f'"{h}"' for h in missing)
+        )
 
 
 def detect_file_type(path: str) -> str | None:
@@ -198,6 +230,7 @@ def load_icount_file(path: str, kind: str) -> dict:
     header_strs = [
         str(c.value).strip() if c.value is not None else "" for c in ws[1]
     ]
+    require_columns(header_strs, kind)
     cols = resolve_columns(header_strs, kind)
 
     # Capture column widths
@@ -641,9 +674,13 @@ def main():
             )
             sys.exit(1)
 
-    # Load data
-    income_data = load_income(args.income) if args.income else None
-    expense_data = load_expenses(args.expenses) if args.expenses else None
+    # Load data (fail loudly with a clean message if a required column is missing)
+    try:
+        income_data = load_income(args.income) if args.income else None
+        expense_data = load_expenses(args.expenses) if args.expenses else None
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
     income_rows = income_data["rows"] if income_data else []
     expense_rows = expense_data["rows"] if expense_data else []
