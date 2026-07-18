@@ -5,7 +5,7 @@ description: Run the bi-monthly Israeli receipt cycle - extract receipts with Op
 
 # Bi-Monthly Receipt Cycle
 
-Five phases. Announce the current phase. Never skip the audit.
+Eight phases. Announce the current phase. Never skip the audit.
 All commands run from the repo root with `PYTHONIOENCODING=utf-8`.
 
 **Corrections log:** the moment the user corrects ANYTHING (a value, a category,
@@ -83,7 +83,47 @@ empty (or the user has accounted for each) before consolidating.
    BEFORE consolidation, or removed from the iCount file after - confirm which
    happened.
 
-## Phase 5 - Reflect
+## Phase 5 - Import to iCount
+
+Manual steps in the iCount web UI - hand off to the user and give them the exact
+consolidation output paths (the `icount_import_*.xls` and its sibling `receipts/`
+folder).
+
+1. **Import the expenses.** מערכת → יבוא ויצוא → הוצאות, upload the
+   `icount_import_*.xls` from the consolidation output.
+2. **Attach a receipt image to each expense.** Open the הוצאות screen and filter
+   a date range covering the period. To show only rows still missing a document,
+   use a browser bookmark: `javascript:$('table tr:has(.fa-file)').hide();`. Open
+   each remaining expense in its own tab, drag the matching file from the
+   consolidation `receipts/` folder onto the upload field, verify the values, and
+   click שמור שינויים.
+   - Deductible-portion receipts intentionally record a smaller amount than their
+     image shows (e.g. AcmeMobile recorded 40.00, image totals 80.00). That mismatch
+     is expected - do not "correct" the amount to match the image.
+
+## Phase 6 - VAT report
+
+1. Export from iCount (user, web UI):
+   - Expenses: הוצאות screen → filter the period's two months → export-to-Excel → download.
+   - Income: מסמכים → filter the period's two months → Excel → download.
+   The user feeds both files to the session.
+2. `uv run python vat_report.py -i <income.xlsx> -e <expenses.xlsx> -o ./output`
+   (either file may be omitted, but not both).
+   - The income-tax advance rate is read from `income_tax_advance_rate` in
+     `config.personal.yaml` automatically; pass `--advance-rate` only to override it.
+   - It auto-detects the reporting period(s) and splits the report per period.
+     Confirm the printed "Found N reporting period(s)" matches the period you
+     expect before trusting the output.
+
+## Phase 7 - File & hand off
+
+1. Optional: send the report to the user's CPA for verification. Every user does
+   this their own way - offer, do not prescribe.
+2. File with the Tax Authority (user action; the report carries the numbers for both):
+   - VAT (מע"מ): https://secapp.taxes.gov.il/EmHanDoch
+   - Income-tax advance (מקדמות): https://secapp.taxes.gov.il/Gmmikdama
+
+## Phase 8 - Reflect
 
 Walk `corrections.md` from the scratchpad plus anything you remember and
 propose routed updates, each requiring explicit user approval:
