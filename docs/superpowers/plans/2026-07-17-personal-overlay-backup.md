@@ -571,6 +571,8 @@ Expected: FAIL — backup is still a no-op, so no commit reaches the remote.
 
 - [ ] **Step 3: Implement `cmd_backup` + `_spawn_push`**
 
+> **NOTE (staging correctness):** A naive `git add -A` does NOT work here — the shared worktree's own `.gitignore` ignores `*.personal.*` and outranks the overlay's `info/exclude` negation, so `add -A` silently skips brand-new personal files (this is exactly what `test_backup_picks_up_new_personal_file` catches). The code below stages tracked edits/deletions with `add -u`, then force-adds new personal files enumerated via `ls-files -o -i --exclude-standard` bounded by the `:(glob)**/*.personal.*` pathspec (so it never sweeps in `.venv`/output dirs, and never fatals on zero matches). Verified against all `TestBackup` cases including "delete every personal file". Do not replace it with `add -A`.
+
 In `tools/personal_backup.py`, replace `cmd_backup` with:
 
 ```python
@@ -600,7 +602,21 @@ def cmd_backup(root: Path, wait: bool = False) -> int:
         return 0
     log_path = root / OVERLAY_DIR / "backup.log"
     try:
-        overlay_git(root, "add", "-A")
+        # The overlay shares the public repo's worktree, whose own .gitignore ignores
+        # *.personal.* — and a worktree .gitignore OUTRANKS our info/exclude negation in
+        # git's ignore precedence, so a plain `add -A` silently skips BRAND-NEW personal
+        # files. Stage tracked personal edits/deletions with -u, then force-add any new
+        # personal files (enumerated + bounded by the glob so we never sweep in .venv etc.).
+        overlay_git(root, "add", "-u")
+        new_personal = [
+            p for p in overlay_git(
+                root, "ls-files", "-o", "-i", "--exclude-standard", "-z",
+                "--", ":(glob)**/*.personal.*",
+            ).stdout.split("\0")
+            if p
+        ]
+        if new_personal:
+            overlay_git(root, "add", "-f", "--", *new_personal)
         staged = [
             p for p in overlay_git(root, "diff", "--cached", "--name-only").stdout.splitlines()
             if p
