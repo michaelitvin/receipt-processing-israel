@@ -105,8 +105,15 @@ def cmd_backup(root: Path, wait: bool = False) -> int:
         ]
         if new_personal:
             overlay_git(root, "add", "-f", "--", *new_personal)
+        # -z (NUL-separated, never quoted) so non-ASCII personal filenames (e.g. Hebrew)
+        # aren't quotePath-escaped, which would break the stray filter below and could
+        # drop a real personal file from the backup. Two triggers can also race on the
+        # overlay index; a resulting index.lock error is caught, logged, and retried next
+        # trigger (see the except clauses) — expected under the always-exit-0 contract.
         staged = [
-            p for p in overlay_git(root, "diff", "--cached", "--name-only").stdout.splitlines()
+            p for p in overlay_git(
+                root, "diff", "--cached", "--name-only", "-z"
+            ).stdout.split("\0")
             if p
         ]
         stray = [

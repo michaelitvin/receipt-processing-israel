@@ -2,11 +2,11 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python tools/personal_backup.py backup --claude-hook"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" && [ -d .git-personal ] && uv run python tools/personal_backup.py backup --claude-hook; true"
           }
         ]
       }

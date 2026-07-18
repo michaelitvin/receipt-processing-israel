@@ -197,6 +197,16 @@ class TestBackup:
         run_script("backup", "--wait", cwd=overlay_project, env=env)
         assert remote_file(private_remote, "docs/newsub/X.personal.md", env) == "nested new\n"
 
+    def test_backup_commits_and_pushes_personal_file_deletion(
+        self, overlay_project, private_remote, env
+    ):
+        (overlay_project / "AUDIT.personal.md").unlink()
+        r = run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert r.returncode == 0, r.stderr
+        files = git("--git-dir", str(private_remote), "ls-tree", "-r", "--name-only", "main",
+                    cwd=private_remote.parent, env=env).stdout.splitlines()
+        assert "AUDIT.personal.md" not in files
+
     def test_backup_without_changes_creates_no_commit(
         self, overlay_project, private_remote, env
     ):
