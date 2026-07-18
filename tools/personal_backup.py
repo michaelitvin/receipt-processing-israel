@@ -64,10 +64,72 @@ def _log(log_path: Path, message: str) -> None:
         f.write(f"{stamp} {message}\n")
 
 
+def _spawn_push(root: Path, log_path: Path, wait: bool) -> None:
+    _log(log_path, "push: starting")
+    log_file = open(log_path, "ab")
+    kwargs = {}
+    if os.name == "nt":
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen(
+        ["git", "--git-dir", str(root / OVERLAY_DIR), "push", "--quiet", "origin", BRANCH],
+        cwd=str(root), env=scrub_env(),
+        stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT,
+        **kwargs,
+    )
+    log_file.close()
+    if wait:
+        proc.wait()
+
+
 def cmd_backup(root: Path, wait: bool = False) -> int:
     if root is None or not (root / OVERLAY_DIR).is_dir():
         return 0
-    return 0  # commit/push implemented in a later task
+    log_path = root / OVERLAY_DIR / "backup.log"
+    try:
+        # The overlay shares the public repo's worktree, whose own .gitignore ignores
+        # *.personal.* — and a worktree .gitignore OUTRANKS our info/exclude negation in
+        # git's ignore precedence, so a plain `add -A` silently skips BRAND-NEW personal
+        # files. Stage tracked personal edits/deletions with -u, then force-add any new
+        # personal files (enumerated + bounded by the glob so we never sweep in .venv etc.).
+        overlay_git(root, "add", "-u")
+        new_personal = [
+            p for p in overlay_git(
+                root, "ls-files", "-o", "-i", "--exclude-standard", "-z",
+                "--", ":(glob)**/*.personal.*",
+            ).stdout.split("\0")
+            if p
+        ]
+        if new_personal:
+            overlay_git(root, "add", "-f", "--", *new_personal)
+        staged = [
+            p for p in overlay_git(root, "diff", "--cached", "--name-only").stdout.splitlines()
+            if p
+        ]
+        stray = [
+            p for p in staged
+            if not fnmatch.fnmatch(p.replace("\\", "/").rsplit("/", 1)[-1], PERSONAL_GLOB)
+        ]
+        if stray:
+            overlay_git(root, "reset", "--quiet", "--", *stray)
+            _log(log_path, f"WARNING: unstaged non-personal paths: {', '.join(stray)}")
+            staged = [p for p in staged if p not in stray]
+        if staged:
+            overlay_git(root, "commit", "--quiet", "-m", "backup: personal files")
+            _log(log_path, f"commit: {len(staged)} file(s)")
+        ahead = overlay_git(
+            root, "rev-list", "--count", f"origin/{BRANCH}..{BRANCH}"
+        ).stdout.strip()
+        if ahead != "0":
+            _spawn_push(root, log_path, wait)
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
+        _log(log_path, f"ERROR: {exc.cmd}: {detail}")
+        print(f"personal_backup: error logged to {log_path}", file=sys.stderr)
+    return 0
 
 
 def _tracked_personal_files(root: Path) -> list[str]:
