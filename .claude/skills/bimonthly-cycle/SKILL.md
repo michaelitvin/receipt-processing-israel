@@ -74,7 +74,9 @@ empty (or the user has accounted for each) before consolidating.
 
 ## Phase 4 - Consolidate
 
-1. `uv run python receipt_consolidator.py BATCH [BATCH2 ...]`
+1. `uv run python receipt_consolidator.py BATCH [BATCH2 ...] --receipts-source-dir <raw-docs folder>`
+   (`--receipts-source-dir` so the receipt files copy for Phase 5's image upload;
+   without it the run copies 0 files and exits nonzero.)
 2. Verify the output XLS: row count equals audited sheets minus non-expense
    ones the user removed; receipts with non-deductible line items import the
    deductible portion only (the consolidator logs these); receipt files copied
