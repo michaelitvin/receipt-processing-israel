@@ -96,6 +96,7 @@ The system handles Israeli-specific tax requirements:
 - Windows console uses cp1252 encoding — use `PYTHONIOENCODING=utf-8` when printing Hebrew/Unicode from Python CLI
 - iCount exports: date columns are located by header text (תאריך / תאריך ערך); the income date is a DD/MM/YYYY string, the expenses date a datetime
 - iCount expenses already include pre-calculated deductibility in "מע"מ מוכר" column — use those values directly
+- iCount converts foreign-currency invoices to ILS on import using its own rate; the consolidator leaves the שער (rate) column blank for iCount to fill. So a foreign invoice's ILS amount in the export/VAT report differs from its nominal foreign amount — expected, not an extraction error
 - Tests: `uv run pytest tests/` (covers receipt_checks, audit_batch, extractor warnings, consolidator parsing, personal_config, personal_backup, and the image_handler raster-PDF gate; no coverage for the live OpenAI API paths)
 - Raster-only PDFs (no text layer + embedded bitmap, e.g. Weezmo receipts) are detected by `ImageHandler.extraction_bitmap`, which sends the crisp embedded bitmap (via poppler's `pdfimages`) to both the API and the Excel review image instead of the raw PDF; normal text-layer PDFs keep the raw-PDF path. Needs `pdftotext`/`pdfimages` on PATH.
 - No linting/formatting tools configured
