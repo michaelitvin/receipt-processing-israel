@@ -74,29 +74,29 @@ def _consolidate(tmp_path, xlsx):
     return consolidator, by_sheet
 
 
-def test_partner_mixed_deductibility_imports_deductible_portion(tmp_path):
+def test_mixed_deductibility_imports_deductible_portion(tmp_path):
     # One deductible line (40.00), one not - only the deductible portion imports.
-    partner = build_receipt(
-        "partner.pdf", "1001", "2026-05-07", 80.00,
-        [_li("מנוי א (מוכר)", 40.00, True),
-         _li("מנוי ב (לא מוכר)", 40.00, False)],
-        vendor="AcmeMobile")
-    xlsx = _make_batch(tmp_path, [partner])
+    cellular = build_receipt(
+        "cellular.pdf", "1001", "2026-05-01", 80.0,
+        [_li("מנוי א (מוכר)", 40.0, True),
+         _li("מנוי ב (לא מוכר)", 40.0, False)],
+        vendor="אקמי סלולר")
+    xlsx = _make_batch(tmp_path, [cellular])
     consolidator, by_sheet = _consolidate(tmp_path, xlsx)
 
     receipt = by_sheet["R001"]
     # The סה"כ פריטים totals row must never be parsed as a line item.
     assert len(receipt["line_items"]) == 2
     row = consolidator._create_icount_row(receipt, None)
-    assert row["סכום"] == 40.00
+    assert row["סכום"] == 40.0
 
 
 def test_fully_deductible_multiline_imports_full_total(tmp_path):
     receipt_in = build_receipt(
-        "water.pdf", "1002", "2026-06-17", 176.00,
-        [_li("רכישה והפקת מים", 90.00, True),
-         _li("טיהור שפכים", 50.00, True),
-         _li("שירות לקוחות", 36.00, True)],
+        "water.pdf", "1002", "2026-06-01", 176.0,
+        [_li("רכישה והפקת מים", 90.0, True),
+         _li("טיהור שפכים", 50.0, True),
+         _li("שירות לקוחות", 36.0, True)],
         vendor="מים לעיר", category="מים")
     xlsx = _make_batch(tmp_path, [receipt_in])
     consolidator, by_sheet = _consolidate(tmp_path, xlsx)
@@ -104,15 +104,15 @@ def test_fully_deductible_multiline_imports_full_total(tmp_path):
     receipt = by_sheet["R001"]
     assert len(receipt["line_items"]) == 3  # sum row excluded
     row = consolidator._create_icount_row(receipt, None)
-    assert row["סכום"] == 176.00
+    assert row["סכום"] == 176.0
 
 
 def test_sum_row_not_parsed_as_line_item(tmp_path):
     # Guard directly against the regression: with a valued sum row present, the
     # single real item is the only line item parsed.
     receipt_in = build_receipt(
-        "fuel.pdf", "999", "2026-05-15", 235.99,
-        [_li("דלק 95", 235.99, True)], vendor="תחנת דלק", category="דלק")
+        "fuel.pdf", "999", "2026-05-01", 400.0,
+        [_li("דלק 95", 400.0, True)], vendor="תחנת דלק", category="דלק")
     xlsx = _make_batch(tmp_path, [receipt_in])
     _, by_sheet = _consolidate(tmp_path, xlsx)
     assert [li["description"] for li in by_sheet["R001"]["line_items"]] == ["דלק 95"]
