@@ -488,7 +488,7 @@ async def main():
             
     print(f"\nOutput directory: {output_dir}")
     
-    print(f"Summary saved to: {output_dir / 'llm_logs' / 'processing_stats.yaml'}")
+    print(f"Summary saved to: {output_dir / 'llm_logs'} (processing_summary_*.yaml)")
 
 
 if __name__ == '__main__':

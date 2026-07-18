@@ -102,9 +102,9 @@ built into the writer shares the writer's blind spots.
 
 - **Business context** — e.g. invoices billed to a second household entity belong
   to this business.
-- **Vendor notes** — e.g. Google Cloud: USD + 0% reverse-charge VAT is normal;
-  AcmeMobile: only line <the-deductible-line> deductible (extraction already knows this
-  via 002; the audit checks it was honored).
+- **Vendor notes** — e.g. a foreign vendor: USD + 0% reverse-charge VAT is normal;
+  a combined bill: only <the-deductible-line> deductible (extraction already knows
+  this via 002; the audit checks it was honored).
 - **Known non-expenses** — e.g. Section 46 certificates.
 
 Seeded at implementation time from the 2026-07-11 session findings.

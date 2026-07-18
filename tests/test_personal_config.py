@@ -35,7 +35,7 @@ def test_own_ids_accepts_comma_string(tmp_path, monkeypatch):
 
 def test_reads_advance_rate(tmp_path, monkeypatch):
     _write(tmp_path, monkeypatch, "income_tax_advance_rate: 10\n")
-    assert pc.get_income_tax_advance_rate() == 12.0
+    assert pc.get_income_tax_advance_rate() == 10.0
 
 
 def test_partial_config_leaves_other_default(tmp_path, monkeypatch):
