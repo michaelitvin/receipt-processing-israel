@@ -10,7 +10,7 @@ All commands run from the repo root with `PYTHONIOENCODING=utf-8`.
 
 **Corrections log:** the moment the user corrects ANYTHING (a value, a category,
 a process step), append one line to `corrections.md` in the session scratchpad:
-`- [phase] what the user corrected, and what we had wrong`. Phase 5 consumes it.
+`- [phase] what the user corrected, and what we had wrong`. Phase 8 consumes it.
 
 **Personal context:** read `AUDIT_KNOWLEDGE.personal.md` (repo root, untracked)
 before Phase 2. It lists known-OK anomalies and business context. If it is
@@ -43,11 +43,11 @@ Steps (`BATCH` = the batch xlsx path):
    `... manifest BATCH` - note structural issues.
    Then `uv run python tools/audit_batch.py recurring BATCH [BATCH2 ...]` (pass
    ALL of the period's batches at once) - a non-empty `missing` list means a
-   recurring receipt (NetCom, AcmeMobile, water, electricity, ...) was never
+   recurring receipt (mobile carrier, internet, water, electricity, ...) was never
    collected; tell the user to locate it before consolidating. If a vendor is
    wrongly reported missing (its name/id changed) or a genuinely new recurring
    vendor appears, propose an edit to `recurring_vendors.personal.yaml` per the
-   caution in Phase 5 - do not edit it silently.
+   caution in Phase 8 - do not edit it silently.
 2. `uv run python tools/audit_batch.py agent-prompts BATCH --scratch <session scratchpad>`
    then dispatch each prompt to a general-purpose subagent (parallel, background).
 3. Reconcile agent transcriptions against the manifest. Consult
@@ -98,7 +98,7 @@ folder).
    consolidation `receipts/` folder onto the upload field, verify the values, and
    click שמור שינויים.
    - Deductible-portion receipts intentionally record a smaller amount than their
-     image shows (e.g. AcmeMobile recorded 40.00, image totals 80.00). That mismatch
+     image shows (e.g. a half-deductible bill recorded 40.00, image totals 80.00). That mismatch
      is expected - do not "correct" the amount to match the image.
 
 ## Phase 6 - VAT report
@@ -140,9 +140,10 @@ propose routed updates, each requiring explicit user approval:
 Nothing is written without approval. Do not auto-commit SKILL.md edits -
 show the diff and let the user decide. EXTRA CAUTION for the `*.personal.*`
 files (AUDIT_KNOWLEDGE, 002-ADDITIONAL_INSTRUCTIONS, recurring_vendors): they
-are untracked and NOT backed up, so a bad edit is unrecoverable - show the exact
-change and get explicit approval before writing, and never delete existing
-entries without the user confirming.
+hold the user's curated personal context - show the exact change and get
+explicit approval before writing, and never delete existing entries without
+the user confirming. (A bad edit IS recoverable - they are version-tracked by
+the `.git-personal` overlay, `git personal log/diff`; see docs/PERSONAL_BACKUP.md.)
 
 ## Known traps
 

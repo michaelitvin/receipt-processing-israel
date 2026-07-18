@@ -36,9 +36,12 @@ def scrub_env() -> dict:
 
 
 def run(args, cwd, check=True, capture=True, binary=False):
+    # encoding pinned: git emits UTF-8 paths; decoding with the Windows locale
+    # codepage (cp1252) mangles or crashes on Hebrew personal filenames.
     return subprocess.run(
         args, cwd=str(cwd), env=scrub_env(), check=check,
         capture_output=capture, text=not binary,
+        encoding=None if binary else "utf-8",
     )
 
 

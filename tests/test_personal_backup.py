@@ -197,6 +197,18 @@ class TestBackup:
         run_script("backup", "--wait", cwd=overlay_project, env=env)
         assert remote_file(private_remote, "docs/newsub/X.personal.md", env) == "nested new\n"
 
+    def test_backup_picks_up_hebrew_named_personal_file(
+        self, overlay_project, private_remote, env
+    ):
+        # Regression: git emits UTF-8 paths; decoding them with the Windows locale
+        # codepage (cp1252) mangled/crashed the backup, and the failure happened
+        # before the commit step - one Hebrew-named file wedged ALL backups.
+        (overlay_project / "הערות.personal.md").write_text("hebrew filename ok\n",
+                                                           encoding="utf-8")
+        r = run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert r.returncode == 0, r.stderr
+        assert remote_file(private_remote, "הערות.personal.md", env) == "hebrew filename ok\n"
+
     def test_backup_commits_and_pushes_personal_file_deletion(
         self, overlay_project, private_remote, env
     ):

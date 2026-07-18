@@ -19,9 +19,18 @@ The system provides a streamlined approach to processing receipts for Israeli ta
    - Copies and organizes receipt files with standardized naming
    - Maintains data integrity and validation
 
+3. **VAT Report** (`vat_report.py`)
+   - Generates the bi-monthly VAT report from iCount income/expenses exports
+   - Splits by reporting period, computes VAT due and income-tax advances
+
+Between the stages, `tools/audit_batch.py` provides deterministic audit tooling
+over the extraction batches (structural checks, visual-verification prompts,
+fix application, recurring-vendor completeness); the `bimonthly-cycle` Claude
+Code skill (`.claude/skills/`) orchestrates the full cycle.
+
 ## ⚡ Key Features
 
-- **Direct PDF Support**: Processes PDFs natively via OpenAI Responses API
+- **Direct PDF Support**: Processes PDFs natively via OpenAI Responses API; raster-only PDFs (e.g. Weezmo thermal receipts) are detected and their embedded bitmap is sent instead for a crisper read
 - **Template-Based Prompts**: Uses Jinja2 templates with full Israeli tax category context
 - **Comprehensive YAML Logging**: Detailed logs with timing, metadata, and full prompts
 - **Excel Review Workflow**: Visual review with embedded images and validation formulas
@@ -124,9 +133,9 @@ Each extracted receipt creates an XLSX worksheet with this layout (Stage 1 extra
    Edit `.env` and add your OpenAI API key:
    ```
    OPENAI_API_KEY=your-openai-api-key-here
-   MAX_CONCURRENT_REQUESTS=5
-   RECEIPTS_PER_FILE=10
    ```
+   (`MODEL`, `MAX_CONCURRENT_REQUESTS`, and `RECEIPTS_PER_FILE` are optional —
+   see `.env.example`.)
 
 ### Usage
 
@@ -141,6 +150,9 @@ uv run python receipt_extractor.py /path/to/receipts/folder --concurrent 3 --rec
 
 # With custom output directory
 uv run python receipt_extractor.py /path/to/receipts/folder --output ./my_extractions
+
+# Flag receipts dated outside the reporting period (YYYY-MM)
+uv run python receipt_extractor.py /path/to/receipts/folder --period 2026-05
 ```
 
 This creates:
@@ -166,6 +178,14 @@ This generates:
   - Files copied from original locations preserving quality
 - Consolidation summary with statistics
 - YAML processing logs
+
+#### VAT Report
+
+```bash
+uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --output ./output
+# Either --income or --expenses may be omitted (but not both).
+# --advance-rate overrides the income_tax_advance_rate from config.personal.yaml.
+```
 
 ## 📋 Technical Details
 
@@ -196,8 +216,7 @@ This generates:
 - Processing statistics and error details
 
 ### Receipt File Organization
-- Automatic file discovery in user directories (Downloads, Documents, Desktop, etc.)
-- Intelligent search for original receipt files
+- Locates originals via the workbook's source hyperlink, the working directory, `./receipts`, or a `--receipts-source-dir` you pass
 - Standardized naming convention: `YYYYMMDD_<receipt_id>__<vendor_name>.{extension}`
 - Preserves original file format and quality
 - Comprehensive copying statistics and error tracking
@@ -208,23 +227,39 @@ This generates:
 receipt_processing_system/
 ├── receipt_extractor.py          # Stage 1: Extract receipt data
 ├── receipt_consolidator.py       # Stage 2: Consolidate to iCount format
+├── vat_report.py                 # Bi-monthly VAT report from iCount exports
 ├── shared/                       # Shared utilities
 │   ├── openai_client.py          # OpenAI API integration with Responses API
-│   ├── image_handler.py          # Image/PDF processing
+│   ├── image_handler.py          # Image/PDF processing (incl. raster-PDF detection)
 │   ├── excel_generator.py        # Excel file creation
+│   ├── excel_config.py           # Review-workbook layout (config/excel_layout.yaml)
+│   ├── receipt_checks.py         # Structural checks shared by extractor and audit
+│   ├── personal_config.py        # config.personal.yaml loader
 │   └── logger.py                 # YAML logging utilities
-├── prompts/                     # Jinja2 templates and schemas
-│   ├── receipt_extraction_prompt.j2  # OpenAI prompt template
+├── tools/
+│   ├── audit_batch.py            # Audit subcommands over extraction batches
+│   └── personal_backup.py        # Private overlay backup of *.personal.* files
+├── config/
+│   └── excel_layout.yaml         # Review-workbook cell layout
+├── prompts/                      # Jinja2 templates and schemas
+│   ├── receipt_extraction_prompt.j2   # OpenAI prompt template
 │   └── receipt_extraction_schema.json # JSON schema for structured output
-├── docs/                        # Documentation
-│   ├── ICOUNT_CATEGORIES.md     # Israeli tax categories
-│   ├── PRODUCT_REQUIREMENTS.md  # Product requirements
-│   ├── TECHNICAL_SPEC.md        # Technical specifications
-│   ├── TROUBLESHOOTING.md       # Troubleshooting guide
-│   └── iCount-Expenses-sample.xls       # Sample Excel output
-├── requirements.txt             # Python dependencies
-└── .env.example                 # Environment configuration template
+├── docs/                         # Documentation
+│   ├── extraction-prompt/        # Prompt sources (001-ICOUNT_CATEGORIES.md, ...)
+│   ├── PERSONAL_BACKUP.md        # Personal-files overlay backup
+│   ├── PRODUCT_REQUIREMENTS.md   # Product requirements (historical)
+│   ├── TECHNICAL_SPEC.md         # Technical specifications (historical)
+│   └── iCount-Expenses-sample.xls # Sample iCount export
+├── tests/                        # pytest suite (uv run pytest tests/)
+├── config.example.yaml           # Template for config.personal.yaml
+├── recurring_vendors.example.yaml # Template for recurring_vendors.personal.yaml
+├── pyproject.toml                # Dependencies (managed with uv)
+└── .env.example                  # Environment configuration template
 ```
+
+Untracked `*.personal.*` files (audit knowledge, prompt additions, personal
+config) are version-tracked in place by a private overlay repo — see
+`docs/PERSONAL_BACKUP.md`.
 
 ## 📈 Israeli Tax Categories
 
@@ -249,20 +284,38 @@ Categories include:
 ### Environment Variables (.env)
 ```
 OPENAI_API_KEY=your-api-key-here      # Required: OpenAI API key
-MAX_CONCURRENT_REQUESTS=5             # Optional: Parallel processing limit
-RECEIPTS_PER_FILE=10                  # Optional: Receipts per Excel file
+MODEL=gpt-5-mini                      # Optional: OpenAI model
+MAX_CONCURRENT_REQUESTS=100           # Optional: Parallel processing limit
+RECEIPTS_PER_FILE=100                 # Optional: Receipts per Excel file
 ```
+
+### Personal Configuration (optional)
+
+- `config.personal.yaml` (copy `config.example.yaml`): income-tax advance rate,
+  the business's own tax ids (flagged if extracted as a vendor id)
+- `recurring_vendors.personal.yaml` (copy `recurring_vendors.example.yaml`):
+  vendors expected every period, checked by `tools/audit_batch.py recurring`
+
+Both are gitignored; see `docs/PERSONAL_BACKUP.md` for how they are backed up.
 
 ### Command Line Options
 
 **receipt_extractor.py:**
 - `--output`: Output directory (default: ./receipts_extracted)
-- `--concurrent`: Max concurrent requests (default: 5)
-- `--receipts-per-file`: Receipts per Excel file (default: 10)
+- `--concurrent`: Max concurrent requests (default: 100)
+- `--receipts-per-file`: Receipts per Excel file (default: 100)
+- `--model`: OpenAI model (default: gpt-5-mini, or `MODEL` env var)
+- `--period YYYY-MM`: Flag receipts dated outside the reporting period
 - `--api-key`: Override API key
 
 **receipt_consolidator.py:**
 - `--output`: Output directory (default: ./receipts_consolidated)
+- `--receipts-source-dir`: Extra folder to search for original receipt files
+
+**vat_report.py:**
+- `--income` / `--expenses`: iCount export files (either may be omitted, not both)
+- `--output`: Output directory
+- `--advance-rate`: Income-tax advance rate in percent (overrides config.personal.yaml)
 
 ## 🐛 Troubleshooting
 
@@ -278,21 +331,19 @@ RECEIPTS_PER_FILE=10                  # Optional: Receipts per Excel file
 
 3. **Template Loading Errors**
    - Verify `prompts/` directory exists
-   - Check `docs/ICOUNT_CATEGORIES.md` is present
+   - Check `docs/extraction-prompt/001-ICOUNT_CATEGORIES.md` is present
 
 ### Log Analysis
 - Check YAML logs in `llm_logs/` directories
 - Review `api_metadata` section for timing and errors
 - Examine `prompt_used` field for template rendering issues
 
-For detailed troubleshooting, see `docs/TROUBLESHOOTING.md`.
-
 ## 📄 Documentation
 
-- **Product Requirements**: `docs/PRODUCT_REQUIREMENTS.md`
-- **Technical Specifications**: `docs/TECHNICAL_SPEC.md`
-- **Troubleshooting Guide**: `docs/TROUBLESHOOTING.md`
-- **Israeli Tax Categories**: `docs/ICOUNT_CATEGORIES.md`
+- **Personal Files Backup**: `docs/PERSONAL_BACKUP.md`
+- **Israeli Tax Categories**: `docs/extraction-prompt/001-ICOUNT_CATEGORIES.md`
+- **Product Requirements** (historical): `docs/PRODUCT_REQUIREMENTS.md`
+- **Technical Specifications** (historical): `docs/TECHNICAL_SPEC.md`
 
 ## 🔒 Security & Privacy
 
