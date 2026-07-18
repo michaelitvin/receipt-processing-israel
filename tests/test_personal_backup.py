@@ -44,13 +44,14 @@ def env(tmp_path):
 @pytest.fixture
 def private_remote(tmp_path, env):
     """Bare repo standing in for the private GitHub repo, seeded like the real one:
-    a README.md (GitHub front page) plus personal files at their project-relative paths."""
+    a README.personal.md (private front-page/notes file) plus personal files at their
+    project-relative paths."""
     remote = tmp_path / "private-remote.git"
     git("init", "--bare", str(remote), cwd=tmp_path, env=env)
     seed = tmp_path / "seed"
     seed.mkdir()
     git("init", cwd=seed, env=env)
-    (seed / "README.md").write_text("# private backup readme\n")
+    (seed / "README.personal.md").write_text("# private backup readme\n")
     (seed / "AUDIT.personal.md").write_text("audit v1\n")
     nested = seed / "docs" / "sub"
     nested.mkdir(parents=True)
@@ -87,3 +88,47 @@ class TestBackupNoOp:
         plain.mkdir()
         r = run_script("backup", cwd=plain, env=env)
         assert r.returncode == 0
+
+
+def overlay_status(proj, env):
+    return git("--git-dir", str(proj / ".git-personal"), "--work-tree", str(proj),
+               "status", "--porcelain", cwd=proj, env=env).stdout
+
+
+class TestSetup:
+    def test_setup_restores_personal_files_fresh_machine(self, project, private_remote, env):
+        r = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert r.returncode == 0, r.stderr
+        assert (project / "AUDIT.personal.md").read_text() == "audit v1\n"
+        assert (project / "docs" / "sub" / "NOTES.personal.md").read_text() == "notes v1\n"
+
+    def test_setup_restores_personal_readme(self, project, private_remote, env):
+        run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert (project / "README.personal.md").read_text() == "# private backup readme\n"
+
+    def test_setup_leaves_public_readme_untouched(self, project, private_remote, env):
+        run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert (project / "README.md").read_text() == "# public readme\n"
+
+    def test_setup_leaves_both_repos_clean(self, project, private_remote, env):
+        run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert git("status", "--porcelain", cwd=project, env=env).stdout == ""
+        assert overlay_status(project, env) == ""
+
+    def test_setup_sets_alias_and_hookspath(self, project, private_remote, env):
+        run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        alias = git("config", "alias.personal", cwd=project, env=env).stdout.strip()
+        assert alias == "!git --git-dir=.git-personal --work-tree=."
+        hooks = git("config", "core.hooksPath", cwd=project, env=env).stdout.strip()
+        assert hooks == ".githooks"
+
+    def test_setup_is_idempotent_and_keeps_public_readme(self, project, private_remote, env):
+        # Two setups must both succeed, leave the overlay clean, and never delete or
+        # modify the public README.md (guards the sparse-checkout data-loss bug the
+        # skip-worktree/README.personal.md redesign fixes).
+        r1 = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        r2 = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
+        assert r1.returncode == 0 and r2.returncode == 0, r2.stderr
+        assert overlay_status(project, env) == ""
+        assert (project / "README.md").read_text() == "# public readme\n"
+        assert git("status", "--porcelain", cwd=project, env=env).stdout == ""

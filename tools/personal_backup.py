@@ -24,7 +24,6 @@ from pathlib import Path
 PRIVATE_REMOTE_URL = "git@github.com:michaelitvin/receipt-processing-israel-personal.git"
 BRANCH = "main"
 PERSONAL_GLOB = "*.personal.*"
-SPARSE_EXCLUDED = ("README.md",)  # on GitHub as the private repo's front page; never in the worktree
 OVERLAY_DIR = ".git-personal"
 
 
@@ -71,8 +70,69 @@ def cmd_backup(root: Path, wait: bool = False) -> int:
     return 0  # commit/push implemented in a later task
 
 
+def _tracked_personal_files(root: Path) -> list[str]:
+    out = run(
+        ["git", "--git-dir", str(root / OVERLAY_DIR),
+         "ls-tree", "-r", "--name-only", "-z", BRANCH],
+        cwd=root,
+    )
+    return [n for n in out.stdout.split("\0") if n]
+
+
+def _norm(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n")
+
+
+def _blob_bytes(root: Path, rel: str) -> bytes:
+    out = run(
+        ["git", "--git-dir", str(root / OVERLAY_DIR), "cat-file", "-p", f"{BRANCH}:{rel}"],
+        cwd=root, binary=True,
+    )
+    return out.stdout
+
+
 def cmd_setup(root: Path, remote: str, force: bool) -> int:
-    raise NotImplementedError  # implemented in a later task
+    overlay = root / OVERLAY_DIR
+
+    if not overlay.is_dir():
+        tmp = root / f"{OVERLAY_DIR}-clone-tmp"
+        if tmp.exists():
+            shutil.rmtree(tmp)
+        run(["git", "clone", "--no-checkout", remote, str(tmp)], cwd=root)
+        (tmp / ".git").rename(overlay)
+        shutil.rmtree(tmp)
+
+    # Overlay repo config: worktree is the project root; track only personal files.
+    # The private repo's own README is README.personal.md (a *.personal.* file), so it
+    # never collides with the public README.md — no sparse-checkout/skip-worktree needed.
+    overlay_git(root, "config", "core.worktree", "..")
+    info = overlay / "info"
+    info.mkdir(exist_ok=True)
+    (info / "exclude").write_text(f"*\n!*/\n!{PERSONAL_GLOB}\n", encoding="utf-8")
+
+    # Public clone config (per-clone, never --global).
+    run(["git", "config", "alias.personal", "!git --git-dir=.git-personal --work-tree=."],
+        cwd=root)
+    run(["git", "config", "core.hooksPath", ".githooks"], cwd=root)
+
+    # Refuse to clobber local personal files that differ from the backup.
+    conflicts = []
+    for rel in _tracked_personal_files(root):
+        path = root / rel
+        if path.exists() and _norm(path.read_bytes()) != _norm(_blob_bytes(root, rel)):
+            conflicts.append(rel)
+    if conflicts and not force:
+        print("error: local personal files differ from the backup:", file=sys.stderr)
+        for rel in conflicts:
+            print(f"  {rel}", file=sys.stderr)
+        print("Run backup from the machine holding the latest versions first, or "
+              "re-run setup with --force to overwrite local files.", file=sys.stderr)
+        return 1
+
+    overlay_git(root, "checkout", "-f", BRANCH)
+    print(f"Overlay ready: {len(_tracked_personal_files(root))} personal file(s) tracked. "
+          f"Use 'git personal status|log|diff'.")
+    return 0
 
 
 def main(argv=None) -> int:
