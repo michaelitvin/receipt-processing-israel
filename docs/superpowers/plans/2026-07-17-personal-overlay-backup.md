@@ -537,6 +537,16 @@ class TestBackup:
         run_script("backup", "--wait", cwd=overlay_project, env=env)
         assert remote_file(private_remote, "docs/newsub/X.personal.md", env) == "nested new\n"
 
+    def test_backup_commits_and_pushes_personal_file_deletion(
+        self, overlay_project, private_remote, env
+    ):
+        (overlay_project / "AUDIT.personal.md").unlink()
+        r = run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert r.returncode == 0, r.stderr
+        files = git("--git-dir", str(private_remote), "ls-tree", "-r", "--name-only", "main",
+                    cwd=private_remote.parent, env=env).stdout.splitlines()
+        assert "AUDIT.personal.md" not in files
+
     def test_backup_without_changes_creates_no_commit(
         self, overlay_project, private_remote, env
     ):
@@ -624,8 +634,15 @@ def cmd_backup(root: Path, wait: bool = False) -> int:
         ]
         if new_personal:
             overlay_git(root, "add", "-f", "--", *new_personal)
+        # -z (NUL-separated, never quoted) so non-ASCII personal filenames (e.g. Hebrew)
+        # aren't quotePath-escaped, which would break the stray filter below and could
+        # drop a real personal file from the backup. Two triggers can also race on the
+        # overlay index; a resulting index.lock error is caught, logged, and retried next
+        # trigger (see the except clauses) — that is expected under the always-exit-0 contract.
         staged = [
-            p for p in overlay_git(root, "diff", "--cached", "--name-only").stdout.splitlines()
+            p for p in overlay_git(
+                root, "diff", "--cached", "--name-only", "-z"
+            ).stdout.split("\0")
             if p
         ]
         stray = [
@@ -837,18 +854,24 @@ fi
 exit 0
 ```
 
-Create `.claude/settings.json`:
+Create `.claude/settings.json`. The command is a POSIX one-liner (Claude Code runs
+shell-form hooks via `sh` on macOS/Linux and Git Bash on Windows, so this is
+cross-platform). It self-gates on `.git-personal/` **before** invoking `uv`, so clones
+without the overlay — every public contributor, or the owner before `uv sync` — pay
+nothing and never surface a hook error (`; true` forces exit 0, which is a silent no-op;
+a non-zero PostToolUse exit would show an error). `$CLAUDE_PROJECT_DIR` anchors paths
+regardless of the hook's cwd:
 
 ```json
 {
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "uv run python tools/personal_backup.py backup --claude-hook"
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" && [ -d .git-personal ] && uv run python tools/personal_backup.py backup --claude-hook; true"
           }
         ]
       }
