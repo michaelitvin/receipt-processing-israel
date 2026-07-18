@@ -784,6 +784,7 @@ def hooked_project(project, private_remote, env):
     hooks = project / ".githooks"
     hooks.mkdir()
     (hooks / "post-commit").write_bytes((REPO_ROOT / ".githooks" / "post-commit").read_bytes())
+    os.chmod(hooks / "post-commit", 0o755)  # git skips non-executable hooks on POSIX
     r = run_script("setup", "--remote", str(private_remote), cwd=project, env=env)
     assert r.returncode == 0, r.stderr
     env = dict(env)
@@ -807,6 +808,7 @@ class TestPostCommitHook:
         hooks = project / ".githooks"
         hooks.mkdir()
         (hooks / "post-commit").write_bytes((REPO_ROOT / ".githooks" / "post-commit").read_bytes())
+        os.chmod(hooks / "post-commit", 0o755)  # git skips non-executable hooks on POSIX
         git("config", "core.hooksPath", ".githooks", cwd=project, env=env)
         (project / "app.py").write_text("print('v3')\n")
         git("add", "app.py", cwd=project, env=env)
