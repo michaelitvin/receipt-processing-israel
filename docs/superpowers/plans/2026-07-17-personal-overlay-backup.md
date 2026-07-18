@@ -530,6 +530,13 @@ class TestBackup:
         run_script("backup", "--wait", cwd=overlay_project, env=env)
         assert remote_file(private_remote, "NEW.personal.yaml", env) == "k: v\n"
 
+    def test_backup_picks_up_new_nested_personal_file(self, overlay_project, private_remote, env):
+        nested = overlay_project / "docs" / "newsub"
+        nested.mkdir(parents=True)
+        (nested / "X.personal.md").write_text("nested new\n")
+        run_script("backup", "--wait", cwd=overlay_project, env=env)
+        assert remote_file(private_remote, "docs/newsub/X.personal.md", env) == "nested new\n"
+
     def test_backup_without_changes_creates_no_commit(
         self, overlay_project, private_remote, env
     ):
@@ -640,6 +647,9 @@ def cmd_backup(root: Path, wait: bool = False) -> int:
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
         _log(log_path, f"ERROR: {exc.cmd}: {detail}")
+        print(f"personal_backup: error logged to {log_path}", file=sys.stderr)
+    except Exception as exc:  # a backup must NEVER break a commit or a Claude session
+        _log(log_path, f"ERROR: {exc!r}")
         print(f"personal_backup: error logged to {log_path}", file=sys.stderr)
     return 0
 ```
