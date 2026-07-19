@@ -121,9 +121,20 @@ folder).
 
 1. Optional: send the report to the user's CPA for verification. Every user does
    this their own way - offer, do not prescribe.
-2. File with the Tax Authority (user action; the report carries the numbers for both):
-   - VAT (מע"מ): https://secapp.taxes.gov.il/EmHanDoch
-   - Income-tax advance (מקדמות): https://secapp.taxes.gov.il/Gmmikdama
+2. File with the Tax Authority (user action; the report carries the numbers for
+   both). Print both lines with this period's figures filled in from the Phase 6
+   report, and with the filing identity for each portal taken from the "Filing
+   identities" section of `AUDIT_KNOWLEDGE.personal.md` - the two reports are not
+   necessarily filed under the same person's ID, and logging into the wrong one
+   wastes a trip:
+
+   - מע"מ - https://secapp.taxes.gov.il/EmHanDoch - <payment due | refund claim>
+     of ₪<vat amount> - filed under <identity>
+   - מקדמות - https://secapp.taxes.gov.il/Gmmikdama - advance of ₪<advance> on
+     turnover ₪<turnover> - filed under <identity>
+
+   If the personal file has no "Filing identities" section, ask the user who each
+   report is filed under and offer to record it there (Phase 8 rules apply).
 
 ## Phase 8 - Reflect
 
