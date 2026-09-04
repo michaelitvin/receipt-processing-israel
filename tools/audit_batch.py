@@ -11,6 +11,9 @@ Subcommands (JSON in/out, UTF-8):
   verify <xlsx>                        post-fix integrity (exit 1 if broken)
   recurring <xlsx>...                   warn if an expected recurring vendor is
                                         missing (reads RECURRING_VENDORS.personal.yaml)
+  history <xlsx>... [--past DIR ...]    compare against every icount_import_*.xls ever
+                                        filed: duplicates (exit 1), name/id/category
+                                        drift, vendors seen before but absent now
 
 fixes.json is a JSON list; each entry is one of:
   {"sheet": "R001", "field": "vendor", "value": "X", "note": "optional"}
@@ -37,7 +40,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font
 
 from shared.excel_config import get_excel_config
-from shared.receipt_checks import (check_batch, missing_recurring_vendors,
+from shared.receipt_checks import (_num, check_batch, missing_recurring_vendors,
                                    parse_period)
 from shared.personal_config import get_own_tax_ids
 
@@ -164,6 +167,153 @@ def cmd_recurring(args) -> int:
                       "batches": len(args.xlsx), "receipts": len(receipts)},
                      ensure_ascii=False, indent=1))
     return 1 if missing else 0
+
+
+# iCount import columns read back by `history` (located by header text, like vat_report)
+ICOUNT_IMPORT_COLS = {"id": "תז/חפ הספק", "name": "שם הספק", "category": "שם סוג הוצאה",
+                      "amount": "סכום", "number": "מספר מסמך", "date": "תאריך האסמכתא"}
+_NAME_NOISE_RE = re.compile(r"[\"'״׳’.,()\-\s]")
+_NO_VAT_SUFFIX_RE = re.compile(r"\s*\(ללא מע.מ\)$")
+
+
+def _norm_name(s) -> str:
+    """Vendor name for comparison: the consolidator strips double quotes on export,
+    so בע"מ and בעמ must compare equal; punctuation/spacing differences are noise."""
+    return _NAME_NOISE_RE.sub("", str(s or "")).lower()
+
+
+def _vendor_key(vendor_id, name) -> tuple:
+    vid = str(vendor_id or "").strip()
+    return ("id", vid) if vid else ("name", _norm_name(name))
+
+
+def _period_bucket(date_str: str) -> str:
+    """Bi-monthly reporting bucket of a YYYY-MM-DD date, e.g. 2026-06-17 -> 2026-05."""
+    m = re.match(r"(\d{4})-(\d{2})", str(date_str or ""))
+    if not m:
+        return ""
+    return f"{m.group(1)}-{(int(m.group(2)) - 1) // 2 * 2 + 1:02d}"
+
+
+def _load_past_imports(dirs) -> list:
+    """Every row of every icount_import_*.xls under dirs (recursive).
+
+    Identical rows are collapsed (a consolidation re-run writes the same rows to a
+    second file); the first file that carried a row is kept as provenance.
+    """
+    import xlrd
+    rows, seen = [], set()
+    for d in dirs:
+        for f in sorted(Path(d).rglob("icount_import_*.xls")):
+            ws = xlrd.open_workbook(f).sheet_by_index(0)
+            header = [str(ws.cell_value(0, c)).strip() for c in range(ws.ncols)]
+            missing = [h for h in ICOUNT_IMPORT_COLS.values() if h not in header]
+            if missing:
+                raise SystemExit(f"{f}: iCount import columns not found: {missing}")
+            idx = {k: header.index(h) for k, h in ICOUNT_IMPORT_COLS.items()}
+            for r in range(1, ws.nrows):
+                row = {k: str(ws.cell_value(r, i)).strip() for k, i in idx.items()}
+                row["category"] = _NO_VAT_SUFFIX_RE.sub("", row["category"])
+                row["file"] = f.name
+                key = (row["id"], _norm_name(row["name"]), row["number"], row["amount"], row["date"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+    return rows
+
+
+def _default_past_dirs() -> list:
+    from shared.personal_config import get_past_imports_dirs
+    repo = Path(__file__).parent.parent
+    dirs = [repo / "receipts_consolidated"] + [Path(d) for d in get_past_imports_dirs()]
+    return [d for d in dirs if d.exists()]
+
+
+def cmd_history(args) -> int:
+    """Compare the period's batches against everything already imported to iCount.
+
+    Reports (JSON): receipts that look already filed (duplicates - exit 1), vendors
+    whose name/id/category drifted from past filings, vendors with no history, and
+    vendors seen in the last filed period (or in 3+ periods) that are absent now.
+    """
+    receipts = []
+    for xlsx in args.xlsx:
+        receipts.extend(parse_batch(Path(xlsx)))
+    _require_sheets(receipts)
+    dirs = [Path(d) for d in args.past] if args.past else _default_past_dirs()
+    past = _load_past_imports(dirs)
+    if not past:
+        print(json.dumps({"note": f"no icount_import_*.xls found under {[str(d) for d in dirs]}"},
+                         ensure_ascii=False, indent=1))
+        return 0
+
+    from collections import Counter, defaultdict
+    by_key = defaultdict(list)
+    for p in past:
+        by_key[_vendor_key(p["id"], p["name"])].append(p)
+        if p["id"]:
+            by_key[("name", _norm_name(p["name"]))].append(p)
+
+    duplicates, inconsistent, new_vendors, matched_keys = [], [], [], set()
+    for r in receipts:
+        ri, am = r["receipt_info"], r["amounts"]
+        cat = r["classification"].get("category", "")
+        key = _vendor_key(ri["vendor_id"], ri["vendor"])
+        hist = by_key.get(key) or by_key.get(("name", _norm_name(ri["vendor"])), [])
+        if not hist:
+            new_vendors.append({"sheet": r["sheet"], "vendor": ri["vendor"],
+                                "vendor_id": ri["vendor_id"], "category": cat})
+            continue
+        for p in hist:
+            matched_keys.add(_vendor_key(p["id"], p["name"]))
+            same_number = ri["number"] and _norm_name(ri["number"]) == _norm_name(p["number"])
+            same_amount_date = (ri["date"] == p["date"][:10] and
+                                abs(_num(am["total_incl_vat"]) - _num(p["amount"])) < 0.01)
+            if same_number or same_amount_date:
+                duplicates.append({"sheet": r["sheet"], "number": ri["number"],
+                                   "vendor": ri["vendor"], "already_filed": {
+                                       "file": p["file"], "vendor": p["name"], "number": p["number"],
+                                       "amount": p["amount"], "date": p["date"]}})
+        names = Counter(p["name"] for p in hist)
+        ids = Counter(p["id"] for p in hist)
+        cats = Counter(p["category"] for p in hist)
+        if _norm_name(ri["vendor"]) not in {_norm_name(n) for n in names}:
+            inconsistent.append({"sheet": r["sheet"], "field": "vendor",
+                                 "now": ri["vendor"], "past": dict(names)})
+        if str(ri["vendor_id"] or "") not in ids:
+            inconsistent.append({"sheet": r["sheet"], "field": "vendor_id",
+                                 "now": ri["vendor_id"], "past": dict(ids)})
+        if cat not in cats:
+            inconsistent.append({"sheet": r["sheet"], "field": "category",
+                                 "now": cat, "past": dict(cats)})
+
+    buckets_by_key = defaultdict(set)
+    for p in past:
+        b = _period_bucket(p["date"])
+        if b:
+            buckets_by_key[_vendor_key(p["id"], p["name"])].add(b)
+    last_bucket = max((b for s in buckets_by_key.values() for b in s), default="")
+    missing = []
+    for k, buckets in buckets_by_key.items():
+        if k in matched_keys:
+            continue
+        if last_bucket in buckets or len(buckets) >= 3:
+            rows = [p for p in past if _vendor_key(p["id"], p["name"]) == k]
+            latest = max(rows, key=lambda p: p["date"])
+            missing.append({"vendor": Counter(p["name"] for p in rows).most_common(1)[0][0],
+                            "vendor_id": k[1] if k[0] == "id" else "",
+                            "periods_seen": len(buckets),
+                            "in_last_filed_period": last_bucket in buckets,
+                            "last_date": latest["date"], "last_amount": latest["amount"],
+                            "category": latest["category"]})
+    missing.sort(key=lambda m: (-m["in_last_filed_period"], -m["periods_seen"], m["vendor"]))
+
+    print(json.dumps({"past_rows": len(past), "past_dirs": [str(d) for d in dirs],
+                      "last_filed_period": last_bucket, "duplicates": duplicates,
+                      "inconsistent": inconsistent, "new_vendors": new_vendors,
+                      "missing_vs_previous": missing}, ensure_ascii=False, indent=1))
+    return 1 if duplicates else 0
 
 
 def cmd_check(args) -> int:
@@ -375,6 +525,15 @@ def main() -> int:
                             "(pass all of the period's batches)")
     p.add_argument("xlsx", type=Path, nargs="+")
     p.set_defaults(func=cmd_recurring)
+
+    p = sub.add_parser("history",
+                       help="compare the period's batches with everything already "
+                            "imported to iCount (duplicates, drift, vendors gone missing)")
+    p.add_argument("xlsx", type=Path, nargs="+")
+    p.add_argument("--past", nargs="*", metavar="DIR",
+                   help="dirs to search (recursively) for icount_import_*.xls; default: "
+                        "receipts_consolidated/ + past_imports_dirs from CONFIG.personal.yaml")
+    p.set_defaults(func=cmd_history)
 
     args = parser.parse_args()
     xlsx_args = args.xlsx if isinstance(args.xlsx, list) else [args.xlsx]

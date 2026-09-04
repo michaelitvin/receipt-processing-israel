@@ -9,7 +9,7 @@ advance rate); it is ignored by the public repo but tracked and backed up by the
 machine loss. Absent file -> empty config (the settings are all optional).
 """
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 import yaml
 
@@ -45,3 +45,14 @@ def get_income_tax_advance_rate(config: Optional[Dict[str, Any]] = None) -> Opti
         config = load_personal_config()
     rate = config.get("income_tax_advance_rate")
     return float(rate) if rate is not None else None
+
+
+def get_past_imports_dirs(config: Optional[Dict[str, Any]] = None) -> List[str]:
+    """Extra directories `audit_batch history` searches for past icount_import_*.xls
+    (an archive outside the repo, e.g. where older cycles were consolidated)."""
+    if config is None:
+        config = load_personal_config()
+    dirs = config.get("past_imports_dirs") or []
+    if isinstance(dirs, str):
+        dirs = [dirs]
+    return [str(d) for d in dirs]

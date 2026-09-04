@@ -18,3 +18,10 @@ income_tax_advance_rate: 10
 own_tax_ids:
   - "000000000"
   - "111111111"
+
+# Directories (searched recursively) holding past consolidation outputs from
+# earlier cycles, in addition to the repo's receipts_consolidated/. audit_batch
+# history reads every icount_import_*.xls it finds to catch receipts already
+# filed, vendor name/id/category drift, and recurring vendors that went missing.
+past_imports_dirs:
+  - "D:/archive/accounting"

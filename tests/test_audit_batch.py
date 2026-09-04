@@ -231,3 +231,58 @@ def test_verify_catches_broken_arithmetic(batch, tmp_path):
     report, rc = run_cli("verify", work)
     assert rc == 1
     assert any("R001" in k for k in report)
+
+
+def _write_past_import(path, rows):
+    """A minimal icount_import_*.xls in the consolidator's column order."""
+    import xlwt
+    wb = xlwt.Workbook()
+    ws = wb.add_sheet("x")
+    header = ["תז/חפ הספק", "שם הספק", "שם סוג הוצאה", "סכום", "מטבע", "שער",
+              "סוג מסמך", "מספר מסמך", "תאריך האסמכתא"]
+    for c, h in enumerate(header):
+        ws.write(0, c, h)
+    for r, row in enumerate(rows, 1):
+        for c, v in enumerate(row):
+            ws.write(r, c, v)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(str(path))
+
+
+def test_history_flags_duplicate_drift_and_missing(batch, tmp_path, capsys):
+    import argparse
+    import audit_batch
+    past = tmp_path / "archive" / "consolidation_1" / "icount_import_1.xls"
+    _write_past_import(past, [
+        # same number as R001, name written the way the consolidator exports it
+        ["510", "ספק בדיקה בעמ", "דלק (ללא מע״מ)", "118.0", "", "", "invrec", "111", "2026-03-10"],
+        # a vendor filed in the last period and before it, absent from the batch
+        ["777", "Vanished Ltd", "אינטרנט", "50", "", "", "invoice", "9", "2026-03-11"],
+        ["777", "Vanished Ltd", "אינטרנט", "50", "", "", "invoice", "10", "2026-01-11"],
+    ])
+    # a re-run of the same consolidation must not double-count
+    _write_past_import(past.with_name("icount_import_2.xls"), [
+        ["777", "Vanished Ltd", "אינטרנט", "50", "", "", "invoice", "9", "2026-03-11"],
+    ])
+    rc = audit_batch.cmd_history(argparse.Namespace(xlsx=[batch], past=[tmp_path / "archive"]))
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["past_rows"] == 3
+    assert out["last_filed_period"] == "2026-03"
+    dup = out["duplicates"]
+    assert len(dup) == 1 and dup[0]["sheet"] == "R001" and dup[0]["number"] == "111"
+    assert dup[0]["already_filed"]["file"] == "icount_import_1.xls"
+    fields = {(i["sheet"], i["field"]) for i in out["inconsistent"]}
+    assert ("R001", "vendor") in fields          # "ספק בדיקה" vs "ספק בדיקה בעמ" is drift
+    assert ("R001", "category") not in fields    # "(ללא מע״מ)" suffix stripped before comparing
+    assert [m["vendor"] for m in out["missing_vs_previous"]] == ["Vanished Ltd"]
+    assert out["missing_vs_previous"][0]["in_last_filed_period"] is True
+    assert out["missing_vs_previous"][0]["periods_seen"] == 2
+
+
+def test_history_no_past_is_noop(batch, tmp_path, capsys):
+    import argparse
+    import audit_batch
+    rc = audit_batch.cmd_history(argparse.Namespace(xlsx=[batch], past=[tmp_path]))
+    assert rc == 0
+    assert "note" in json.loads(capsys.readouterr().out)

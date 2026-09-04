@@ -16,6 +16,15 @@ a process step), append one line to `corrections.md` in the session scratchpad:
 before Phase 2. It lists known-OK anomalies and business context. If it is
 missing, ask the user whether to recreate it.
 
+**Reporting-period split - do NOT ask about it.** Documents dated outside the
+period (typically early next month, collected before filing) are extracted,
+audited and imported to iCount now like everything else. `vat_report.py`
+splits by reporting period automatically, so they surface in their own
+block and only the target period's block is filed. `check --period` flags
+them so you can eyeball the DATE (a print date vs a charge date is the only
+real question there) - never propose holding them back, and never ask the
+user to choose; the answer is always "import now, file in their period".
+
 ## Phase 1 - Extract
 
 1. Ask for the raw-docs folder and the reporting period (YYYY-MM) if not given.
@@ -48,12 +57,32 @@ Steps (`BATCH` = the batch xlsx path):
    wrongly reported missing (its name/id changed) or a genuinely new recurring
    vendor appears, propose an edit to `RECURRING_VENDORS.personal.yaml` per the
    caution in Phase 8 - do not edit it silently.
+   Then `uv run python tools/audit_batch.py history BATCH [BATCH2 ...]` - compares
+   the period against EVERY `icount_import_*.xls` ever produced (repo
+   `receipts_consolidated/` plus `past_imports_dirs` from `CONFIG.personal.yaml`):
+   - `duplicates` (exit 1): a receipt number / amount+date already filed - it
+     must not be imported again (`non_expense` it, tell the user).
+   - `inconsistent`: vendor name / id / category differs from how the same
+     vendor was filed before. Normalize to the MOST RECENT past spelling via
+     `fixes.json` (iCount keys suppliers by name+id; drift creates duplicate
+     supplier records). A category that differs from past practice is a
+     question for the user, not a silent fix.
+   - `missing_vs_previous`: vendors filed last period (or in 3+ periods) with
+     no receipt now - the data-driven complement of `recurring`. Tell the user
+     to locate each one or confirm it genuinely stopped. Annual vendors
+     (insurance, CPA) show up here only when their month comes round.
+   - `new_vendors`: no history - nothing to compare, just be aware.
 2. `uv run python tools/audit_batch.py agent-prompts BATCH --scratch <session scratchpad>`
    then dispatch each prompt to a general-purpose subagent (parallel, background).
 3. Reconcile agent transcriptions against the manifest. Consult
    `AUDIT_KNOWLEDGE.personal.md` - known anomalies are not findings.
    `UNVERIFIABLE` verdicts: read the image yourself; re-dispatch a dead agent's
    chunk once before reading directly.
+   **Verify every proposed VALUE before it goes into `fixes.json`** - `pdftotext`
+   on the source (or read the image) for receipt numbers and ids. An agent once
+   proposed a "corrected" receipt number that was a print-form reference next
+   to the timestamp; both strings were in the PDF. Agents find candidates; you
+   confirm them.
 4. Write `fixes.json` (schema in `tools/audit_batch.py` docstring/tests):
    corrected values with Hebrew audit notes, `non_expense: true` for documents
    that are not expenses (certificates, confirmations - do not delete sheets).
@@ -69,8 +98,9 @@ Hand off: the user reviews the audited xlsx in Excel (red tabs first, then
 audit notes in the הערות column). When they say they are done:
 `uv run python tools/audit_batch.py check BATCH --period <YYYY-MM>` again -
 their edits are unvalidated input. Surface any new issues before Phase 4.
-Re-run `... recurring BATCH [BATCH2 ...]` too - confirm the `missing` list is
-empty (or the user has accounted for each) before consolidating.
+Re-run `... recurring BATCH [BATCH2 ...]` and `... history BATCH [BATCH2 ...]`
+too - confirm `missing` / `missing_vs_previous` are empty (or the user has
+accounted for each) and `duplicates` is empty before consolidating.
 
 ## Phase 4 - Consolidate
 
@@ -114,8 +144,10 @@ folder).
    - The income-tax advance rate is read from `income_tax_advance_rate` in
      `CONFIG.personal.yaml` automatically; pass `--advance-rate` only to override it.
    - It auto-detects the reporting period(s) and splits the report per period.
-     Confirm the printed "Found N reporting period(s)" matches the period you
-     expect before trusting the output.
+     Confirm the printed "Found N reporting period(s)" includes the period you
+     are filing. N > 1 is normal when next-month documents were imported (see
+     the period-split note at the top) - that extra block is partial and is
+     NOT filed now; only the target period's figures go to Phase 7.
 
 ## Phase 7 - File & hand off
 
@@ -149,6 +181,8 @@ propose routed updates, each requiring explicit user approval:
 - Recurring-vendor set (a new vendor that now bills every period, or a changed
   name/id that caused a false "missing") → `RECURRING_VENDORS.personal.yaml`
   (prefer `ids` for Israeli vendors, `keywords` for foreign ones)
+- Archive location of older consolidations (so `history` sees them) →
+  `past_imports_dirs` in `CONFIG.personal.yaml`
 
 Nothing is written without approval. Do not auto-commit SKILL.md edits -
 show the diff and let the user decide. EXTRA CAUTION for the `*.personal.*`
