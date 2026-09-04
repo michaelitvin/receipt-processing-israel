@@ -24,7 +24,7 @@ INCOME_HEADERS = [
 
 def test_resolve_columns_by_name_not_position():
     cols = v.resolve_columns(EXPENSE_HEADERS, "expenses")
-    assert cols == {"date": 5, "expense_type": 0, "recognized_vat": 12}
+    assert cols == {"date": EXPENSE_HEADERS.index("תא' אסמכתא"), "expense_type": 0, "recognized_vat": 12}
 
 
 def test_resolve_columns_adapts_to_reorder():
@@ -87,3 +87,14 @@ def test_detect_file_type_by_headers(tmp_path):
         p = tmp_path / f"{kind}.xlsx"
         wb.save(p)
         assert v.detect_file_type(str(p)) == kind
+
+
+def test_expenses_date_survives_icount_relabel_of_neighbour_column():
+    """2026-09 export: iCount renamed the column next to the reference date
+    ("תאריך ערך" -> "לתשלום עד"). The report keys the expenses date on
+    "תא' אסמכתא", which is unchanged, so the new export must still load."""
+    sep_2026 = ["לתשלום עד" if h == "תאריך ערך" else h for h in EXPENSE_HEADERS]
+    v.require_columns(sep_2026, "expenses")
+    cols = v.resolve_columns(sep_2026, "expenses")
+    assert sep_2026[cols["date"]] == "תא' אסמכתא"
+    assert v.resolve_columns(EXPENSE_HEADERS, "expenses")["date"] == EXPENSE_HEADERS.index("תא' אסמכתא")

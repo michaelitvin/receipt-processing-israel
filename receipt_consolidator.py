@@ -26,6 +26,8 @@ import logging
 import pandas as pd
 import json
 from pathlib import Path
+from urllib.parse import unquote
+from urllib.request import url2pathname
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
@@ -184,9 +186,16 @@ class ReceiptConsolidator:
                                     # Extract path from hyperlink (remove file:// prefix if present)
                                     hyperlink_target = cell.hyperlink.target
                                     if hyperlink_target.startswith('file://'):
-                                        full_path = hyperlink_target[7:]  # Remove 'file://'
+                                        # a bare [7:] slice leaves a leading slash before the drive
+                                        # letter, which never exists on Windows; url2pathname maps
+                                        # the file URL back to a native path (and decodes %20)
+                                        full_path = url2pathname(hyperlink_target[7:])
                                     else:
-                                        full_path = hyperlink_target  # Use as-is
+                                        # Excel re-saves a link inside the workbook's tree as a
+                                        # percent-encoded path relative to the workbook
+                                        rel = Path(unquote(hyperlink_target))
+                                        full_path = str(rel if rel.is_absolute()
+                                                        else (excel_file.parent / rel).resolve())
                                     receipt_data['original_file_full_path'] = full_path
                                     logger.debug(f"Extracted full path from hyperlink: {full_path}")
                             except Exception as e:

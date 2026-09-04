@@ -57,7 +57,8 @@ Steps (`BATCH` = the batch xlsx path):
    wrongly reported missing (its name/id changed) or a genuinely new recurring
    vendor appears, propose an edit to `RECURRING_VENDORS.personal.yaml` per the
    caution in Phase 8 - do not edit it silently.
-   Then `uv run python tools/audit_batch.py history BATCH [BATCH2 ...]` - compares
+   Then `uv run python tools/audit_batch.py history BATCH [BATCH2 ...] --period <YYYY-MM>` -
+   (`--period` makes it ignore this period's own consolidation output) compares
    the period against EVERY `icount_import_*.xls` ever produced (repo
    `receipts_consolidated/` plus `past_imports_dirs` from `CONFIG.personal.yaml`):
    - `duplicates` (exit 1): a receipt number / amount+date already filed - it
@@ -94,24 +95,38 @@ Steps (`BATCH` = the batch xlsx path):
 
 ## Phase 3 - Human review
 
+If the user says they do not need to review ("make the edits yourself"), skip
+the hand-off: apply every remaining decision via `apply-fixes`, then go
+straight to the merge below.
+
 Hand off: the user reviews the audited xlsx in Excel (red tabs first, then
 audit notes in the הערות column). When they say they are done:
 `uv run python tools/audit_batch.py check BATCH --period <YYYY-MM>` again -
 their edits are unvalidated input. Surface any new issues before Phase 4.
-Re-run `... recurring BATCH [BATCH2 ...]` and `... history BATCH [BATCH2 ...]`
+Re-run `... recurring BATCH [BATCH2 ...]` and `... history BATCH [BATCH2 ...] --period <YYYY-MM>`
 too - confirm `missing` / `missing_vs_previous` are empty (or the user has
 accounted for each) and `duplicates` is empty before consolidating.
 
 ## Phase 4 - Consolidate
 
-1. `uv run python receipt_consolidator.py BATCH [BATCH2 ...] --receipts-source-dir <raw-docs folder>`
+0. One workbook per period: `uv run python tools/audit_batch.py merge MERGED.xlsx BATCH [SUPPLEMENT ...] --drop R009 ...`
+   regenerates a single batch through ExcelGenerator (sheet names, audit notes
+   and tab colors preserved; a supplement's sheets get the next free R###),
+   with `--drop` for the non-expense/duplicate sheets instead of deleting them
+   by hand in Excel. Put it under `receipts_extracted/extraction_<date>_merged/`
+   and run `verify`, `check --period`, `recurring`, `history --period` on it.
+1. `uv run python receipt_consolidator.py MERGED.xlsx --receipts-source-dir <raw-docs folder>`
    (`--receipts-source-dir` so the receipt files copy for Phase 5's image upload;
    without it the run copies 0 files and exits nonzero.)
 2. Verify the output XLS: row count equals audited sheets minus non-expense
    ones the user removed; receipts with non-deductible line items import the
    deductible portion only (the consolidator logs these); receipt files copied
    with standardized names.
-3. Remind the user: non-expense sheets (red tab) must be deleted from the xlsx
+   Originals are located through each sheet's file:/// hyperlink first, so a
+   supplement extracted from a second folder copies fine; the source dir is
+   only the fallback. Expect "N/N files copied" - anything less is a bug.
+3. Remind the user: non-expense sheets (red tab) must be dropped via `merge --drop`
+   (or deleted from the xlsx)
    BEFORE consolidation, or removed from the iCount file after - confirm which
    happened.
 
@@ -196,7 +211,13 @@ the `.git-personal` overlay, `git personal log/diff`; see docs/personal-backup.m
 
 - openpyxl ignores `img.width`/`img.height` on loaded workbooks - image sizing
   goes through `anchor.ext` (audit_batch handles this; never bypass it).
-- `PermissionError` on save = file open in Excel.
+- `PermissionError` on save = file open in Excel. An Excel lock file (`~$name.xlsx`)
+  newer than the workbook means the user's edit is still UNSAVED - ask them to save.
+- Excel re-saves the source hyperlinks: absolute links become percent-encoded
+  (`file:///G:\My%20Drive\...`) and links into the workbook's own tree become
+  RELATIVE (`../../Receipts%20-%20triage.../x.pdf`). The consolidator decodes and
+  resolves both; if "N/N files copied" ever drops after a human save, check the
+  link form first.
 - Windows console is cp1252 - Hebrew output needs `PYTHONIOENCODING=utf-8`.
 - Weezmo/EZcount/invoice4u are receipt-delivery platforms, never the vendor.
 - A receipt's printed total may differ from net+VAT by one agora - that is

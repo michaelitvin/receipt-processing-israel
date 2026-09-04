@@ -264,10 +264,16 @@ def test_history_flags_duplicate_drift_and_missing(batch, tmp_path, capsys):
     _write_past_import(past.with_name("icount_import_2.xls"), [
         ["777", "Vanished Ltd", "אינטרנט", "50", "", "", "invoice", "9", "2026-03-11"],
     ])
-    rc = audit_batch.cmd_history(argparse.Namespace(xlsx=[batch], past=[tmp_path / "archive"]))
+    # this period's own consolidation (produced after the period ended) is not history
+    _write_past_import(tmp_path / "archive" / "consolidation_9" / "icount_import_20260904_120000.xls", [
+        ["510", "ספק בדיקה", "דלק", "118.0", "", "", "invrec", "111", "2026-05-10"],
+    ])
+    rc = audit_batch.cmd_history(argparse.Namespace(xlsx=[batch], past=[tmp_path / "archive"],
+                                                    period="2026-03"))
     out = json.loads(capsys.readouterr().out)
     assert rc == 1
     assert out["past_rows"] == 3
+    assert out["excluded_files"] == ["icount_import_20260904_120000.xls"]
     assert out["last_filed_period"] == "2026-03"
     dup = out["duplicates"]
     assert len(dup) == 1 and dup[0]["sheet"] == "R001" and dup[0]["number"] == "111"
@@ -283,6 +289,41 @@ def test_history_flags_duplicate_drift_and_missing(batch, tmp_path, capsys):
 def test_history_no_past_is_noop(batch, tmp_path, capsys):
     import argparse
     import audit_batch
-    rc = audit_batch.cmd_history(argparse.Namespace(xlsx=[batch], past=[tmp_path]))
+    rc = audit_batch.cmd_history(argparse.Namespace(xlsx=[batch], past=[tmp_path], period=None))
     assert rc == 0
     assert "note" in json.loads(capsys.readouterr().out)
+
+
+def test_merge_preserves_names_notes_and_drops(batch, tmp_path, capsys):
+    import argparse
+    import audit_batch
+    from openpyxl import load_workbook
+    # give R001 an audit note first, so we can see it survive the merge
+    fixes = tmp_path / "fixes.json"
+    fixes.write_text(json.dumps([{"sheet": "R001", "field": "vendor", "value": "ספק בדיקה",
+                                  "note": "הערת ביקורת"}]), encoding="utf-8")
+    src = tmp_path / "src.xlsx"
+    import shutil
+    shutil.copy2(batch, src)
+    shutil.copytree(batch.parent / "images", tmp_path / "images")
+    assert audit_batch.cmd_apply_fixes(argparse.Namespace(
+        xlsx=src, fixes=fixes, backup_dir=tmp_path / "bk")) == 0
+    capsys.readouterr()
+
+    out = tmp_path / "merged" / "merged.xlsx"
+    rc = audit_batch.cmd_merge(argparse.Namespace(out=out, xlsx=[src, src], drop=["R002"]))
+    info = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    # first source keeps its names; the second source's R001 collides -> next free
+    # number AFTER the dropped R002, which is never reused
+    assert info["mapping"] == {"0:src.xlsx": {"R001": "R001"}, "1:src.xlsx": {"R001": "R003"}}
+    wb = load_workbook(out)
+    assert [n for n in wb.sheetnames if n.startswith("R")] == ["R001", "R003"]
+    assert info["dropped"] == ["0:src.xlsx:R002", "1:src.xlsx:R002"]
+    assert wb["R001"]["D3"].value == "הערת ביקורת"           # audit note carried over
+    assert wb["R003"]["D3"].value == "הערת ביקורת"
+    assert len(wb["R001"]._images) == 1                       # image embedded via the generator
+    parsed = {r["sheet"]: r for r in parse_batch(out)}
+    assert parsed["R003"]["receipt_info"]["number"] == "111"
+    assert parsed["R003"]["amounts"]["total_incl_vat"] == 118.0
+    assert audit_batch.cmd_verify(argparse.Namespace(xlsx=out)) == 0

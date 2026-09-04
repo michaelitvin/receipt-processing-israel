@@ -11,9 +11,13 @@ Subcommands (JSON in/out, UTF-8):
   verify <xlsx>                        post-fix integrity (exit 1 if broken)
   recurring <xlsx>...                   warn if an expected recurring vendor is
                                         missing (reads RECURRING_VENDORS.personal.yaml)
-  history <xlsx>... [--past DIR ...]    compare against every icount_import_*.xls ever
+  history <xlsx>... [--period YYYY-MM] [--past DIR ...]
+                                        compare against every icount_import_*.xls ever
                                         filed: duplicates (exit 1), name/id/category
                                         drift, vendors seen before but absent now
+  merge <out.xlsx> <xlsx>... [--drop R009 ...]
+                                        combine batches into one workbook (sheet names
+                                        and audit notes preserved), dropping sheets
 
 fixes.json is a JSON list; each entry is one of:
   {"sheet": "R001", "field": "vendor", "value": "X", "note": "optional"}
@@ -25,13 +29,16 @@ fixes.json is a JSON list; each entry is one of:
 Used by the bimonthly-cycle skill; see .claude/skills/bimonthly-cycle/SKILL.md.
 """
 import argparse
+import filecmp
 import json
 import os
 import re
 import shutil
 import sys
-from datetime import datetime
+from copy import copy
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -195,16 +202,37 @@ def _period_bucket(date_str: str) -> str:
     return f"{m.group(1)}-{(int(m.group(2)) - 1) // 2 * 2 + 1:02d}"
 
 
-def _load_past_imports(dirs) -> list:
+def _import_stamp(f: Path) -> Optional[str]:
+    """YYYYMMDD from icount_import_YYYYMMDD_HHMMSS.xls; None when the name carries
+    no stamp (mtime is not trusted - copying an archive resets it)."""
+    m = re.search(r"icount_import_(\d{8})_", f.name)
+    return m.group(1) if m else None
+
+
+def _period_end_stamp(period: str) -> str:
+    """Last day of the bi-monthly period as YYYYMMDD (2026-07 -> 20260831)."""
+    y, m = map(int, max(parse_period(period)).split("-"))
+    nxt = datetime(y + (m == 12), m % 12 + 1, 1)
+    return (nxt - timedelta(days=1)).strftime("%Y%m%d")
+
+
+def _load_past_imports(dirs, period: Optional[str] = None) -> tuple:
     """Every row of every icount_import_*.xls under dirs (recursive).
 
     Identical rows are collapsed (a consolidation re-run writes the same rows to a
-    second file); the first file that carried a row is kept as provenance.
+    second file); the first file that carried a row is kept as provenance. With a
+    period, imports produced AFTER that period ended are skipped - they are this
+    period's own consolidation (or later), not history - and returned as excluded.
     """
     import xlrd
-    rows, seen = [], set()
+    rows, seen, excluded = [], set(), []
+    cutoff = _period_end_stamp(period) if period else None
     for d in dirs:
         for f in sorted(Path(d).rglob("icount_import_*.xls")):
+            stamp = _import_stamp(f)
+            if cutoff and stamp and stamp > cutoff:
+                excluded.append(f.name)
+                continue
             ws = xlrd.open_workbook(f).sheet_by_index(0)
             header = [str(ws.cell_value(0, c)).strip() for c in range(ws.ncols)]
             missing = [h for h in ICOUNT_IMPORT_COLS.values() if h not in header]
@@ -220,7 +248,7 @@ def _load_past_imports(dirs) -> list:
                     continue
                 seen.add(key)
                 rows.append(row)
-    return rows
+    return rows, excluded
 
 
 def _default_past_dirs() -> list:
@@ -242,7 +270,7 @@ def cmd_history(args) -> int:
         receipts.extend(parse_batch(Path(xlsx)))
     _require_sheets(receipts)
     dirs = [Path(d) for d in args.past] if args.past else _default_past_dirs()
-    past = _load_past_imports(dirs)
+    past, excluded = _load_past_imports(dirs, args.period)
     if not past:
         print(json.dumps({"note": f"no icount_import_*.xls found under {[str(d) for d in dirs]}"},
                          ensure_ascii=False, indent=1))
@@ -310,10 +338,99 @@ def cmd_history(args) -> int:
     missing.sort(key=lambda m: (-m["in_last_filed_period"], -m["periods_seen"], m["vendor"]))
 
     print(json.dumps({"past_rows": len(past), "past_dirs": [str(d) for d in dirs],
+                      "excluded_files": excluded,
                       "last_filed_period": last_bucket, "duplicates": duplicates,
                       "inconsistent": inconsistent, "new_vendors": new_vendors,
                       "missing_vs_previous": missing}, ensure_ascii=False, indent=1))
     return 1 if duplicates else 0
+
+
+CATEGORIES_FILE = Path(__file__).parent.parent / "docs" / "extraction-prompt" / "001-icount-categories.md"
+
+
+def cmd_merge(args) -> int:
+    """Combine several batch workbooks into one (e.g. a period's main batch plus a
+    late supplement), optionally dropping sheets (a duplicate flagged non_expense).
+
+    The output is regenerated through ExcelGenerator from the parsed sheets - the
+    only code path that lays out a review sheet and embeds its image - so it is a
+    first-class batch (verify/check/consolidate all work on it). Sheet names are
+    preserved; a later source's sheet whose name is already taken gets the next
+    free R### number, so audit notes and the user's references stay valid. Column
+    D (audit notes / review warnings) and tab colors are carried over.
+    """
+    from shared.excel_generator import ExcelGenerator
+    from openpyxl.utils import get_column_letter
+
+    config = get_excel_config()
+    drop = set(args.drop or [])
+    out = Path(args.out)
+    images_dir = out.parent / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    receipts, names, mapping, dropped = [], [], {}, []
+    taken = set()
+    next_free = 1
+    for i, xlsx in enumerate(args.xlsx):
+        src = Path(xlsx)
+        src_wb = load_workbook(src)
+        src_key = f"{i}:{src.name}"
+        mapping[src_key] = {}
+        for r in parse_batch(src):
+            m = re.match(r"R(\d{3})", r["sheet"])
+            next_free = max(next_free, int(m.group(1)) + 1)
+            if r["sheet"] in drop:
+                dropped.append(f"{src_key}:{r['sheet']}")
+                continue
+            name = r["sheet"]
+            if name in taken:
+                name = config.get_worksheet_name(next_free)
+                next_free += 1
+            taken.add(name)
+            mapping[src_key][r["sheet"]] = name
+            # the hyperlink target is the absolute source path; the generator
+            # derives both the link and the image filename from original_file
+            r["receipt_info"]["original_file"] = r["source_pdf"] or r["receipt_info"]["original_file"]
+            jpg = Path(r["image_jpg"])
+            if jpg.exists():
+                dest = images_dir / jpg.name
+                if dest.resolve() != jpg.resolve():
+                    if dest.exists() and not filecmp.cmp(jpg, dest, shallow=False):
+                        raise SystemExit(f"image name collision across batches: {jpg.name}")
+                    shutil.copy2(jpg, dest)
+            receipts.append(r)
+            names.append((name, src_wb[r["sheet"]]))
+
+    _require_sheets(receipts)
+    wb = ExcelGenerator(CATEGORIES_FILE).create_batch_workbook(receipts, images_dir)
+
+    # rename generated R001.. to the preserved names (two passes: targets may
+    # collide with not-yet-renamed generated sheets)
+    generated = [config.get_worksheet_name(i) for i in range(1, len(names) + 1)]
+    for i, g in enumerate(generated):
+        wb[g].title = f"tmp{i:03d}"
+    notes_col = config.header_value_column + 2
+    for i, (name, src_ws) in enumerate(names):
+        ws = wb[f"tmp{i:03d}"]
+        ws.title = name
+        ws.sheet_properties.tabColor = src_ws.sheet_properties.tabColor
+        for row in range(1, config.line_items_start_row):
+            cell = src_ws.cell(row=row, column=notes_col)
+            if cell.value is None:
+                continue
+            dst = ws.cell(row=row, column=notes_col, value=cell.value)
+            dst.font = copy(cell.font)
+            dst.alignment = copy(cell.alignment)
+
+    try:
+        wb.save(out)
+    except PermissionError:
+        print(f"Cannot save {out} - the file is open in Excel.", file=sys.stderr)
+        return 3
+    print(json.dumps({"out": str(out), "sheets": len(names), "dropped": dropped,
+                      "mapping": mapping, "images_dir": str(images_dir)},
+                     ensure_ascii=False, indent=1))
+    return 0
 
 
 def cmd_check(args) -> int:
@@ -530,10 +647,19 @@ def main() -> int:
                        help="compare the period's batches with everything already "
                             "imported to iCount (duplicates, drift, vendors gone missing)")
     p.add_argument("xlsx", type=Path, nargs="+")
+    p.add_argument("--period", help="reporting period YYYY-MM; imports produced after it "
+                                    "ended (this period's own consolidation) are ignored")
     p.add_argument("--past", nargs="*", metavar="DIR",
                    help="dirs to search (recursively) for icount_import_*.xls; default: "
                         "receipts_consolidated/ + past_imports_dirs from CONFIG.personal.yaml")
     p.set_defaults(func=cmd_history)
+
+    p = sub.add_parser("merge", help="combine batch workbooks into one, optionally "
+                                     "dropping sheets (e.g. a duplicate)")
+    p.add_argument("out", type=Path)
+    p.add_argument("xlsx", type=Path, nargs="+")
+    p.add_argument("--drop", nargs="*", metavar="SHEET", help="sheet names to leave out")
+    p.set_defaults(func=cmd_merge)
 
     args = parser.parse_args()
     xlsx_args = args.xlsx if isinstance(args.xlsx, list) else [args.xlsx]

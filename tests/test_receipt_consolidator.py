@@ -116,3 +116,41 @@ def test_sum_row_not_parsed_as_line_item(tmp_path):
     xlsx = _make_batch(tmp_path, [receipt_in])
     _, by_sheet = _consolidate(tmp_path, xlsx)
     assert [li["description"] for li in by_sheet["R001"]["line_items"]] == ["דלק 95"]
+
+
+def test_hyperlink_file_url_resolves_to_the_original(tmp_path):
+    """The review sheet links the original as a file:/// URL with a drive letter;
+    the consolidator must map that back to a real path (search step 1), not fall
+    through to the --receipts-source-dir fallback, which cannot see a second folder."""
+    original = tmp_path / "originals" / "one.pdf"
+    original.parent.mkdir()
+    original.write_bytes(b"%PDF-1.4 test")
+    xlsx = _make_batch(tmp_path, [build_receipt(str(original), "1", "2026-05-10", 118.0,
+                                                [_li("x", 118.0, True)])])
+    consolidator, by_sheet = _consolidate(tmp_path, xlsx)
+    full = by_sheet["R001"].get("original_file_full_path")
+    assert full and Path(full).exists(), full
+    found = consolidator._find_receipt_file(by_sheet["R001"]["original_file"], full)
+    assert found is not None and found.resolve() == original.resolve()
+
+
+def test_excel_resaved_relative_percent_encoded_link_resolves(tmp_path):
+    """Excel rewrites a link to a file under the workbook's tree as a percent-encoded
+    path relative to the workbook (../orig%20dir/x.pdf); it must still resolve."""
+    from openpyxl import load_workbook
+    original = tmp_path / "orig dir" / "one.pdf"
+    original.parent.mkdir()
+    original.write_bytes(b"%PDF-1.4 test")
+    batch_dir = tmp_path / "batch"
+    batch_dir.mkdir()
+    xlsx = _make_batch(batch_dir, [build_receipt(str(original), "1", "2026-05-10", 118.0,
+                                                 [_li("x", 118.0, True)])])
+    cfg = get_excel_config()
+    row = cfg.header_start_row + [f for _, f in cfg.get_header_fields()].index("original_file")
+    wb = load_workbook(xlsx)
+    wb["R001"].cell(row=row, column=cfg.header_value_column).hyperlink = "../orig%20dir/one.pdf"
+    wb.save(xlsx)
+    consolidator, by_sheet = _consolidate(tmp_path, xlsx)
+    found = consolidator._find_receipt_file(by_sheet["R001"]["original_file"],
+                                            by_sheet["R001"].get("original_file_full_path"))
+    assert found is not None and found.resolve() == original.resolve()

@@ -98,7 +98,10 @@ COLUMN_SPECS = {
         "vat": "מע\"מ",
     },
     "expenses": {
-        "date": "תאריך ערך",
+        # document date. iCount relabelled the neighbouring column ("תאריך ערך" in
+        # 2026-07, "לתשלום עד" in 2026-09) while its values stayed identical to
+        # this one in every row; the reference date is the stable header.
+        "date": "תא' אסמכתא",
         "expense_type": "סוג הוצאה",
         "recognized_vat": "מע\"מ מוכר",
     },
