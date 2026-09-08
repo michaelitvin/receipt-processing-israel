@@ -98,3 +98,86 @@ def test_expenses_date_survives_icount_relabel_of_neighbour_column():
     cols = v.resolve_columns(sep_2026, "expenses")
     assert sep_2026[cols["date"]] == "תא' אסמכתא"
     assert v.resolve_columns(EXPENSE_HEADERS, "expenses")["date"] == EXPENSE_HEADERS.index("תא' אסמכתא")
+
+
+# ---- numeric coercion: text-typed amount cells must not break the Excel formulas ----
+
+def _write_income(path, rows):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(INCOME_HEADERS)
+    for r in rows:
+        ws.append(r)
+    wb.save(path)
+
+
+def _income_row(doc, date, before, vat):
+    return ["ACME", doc, date, None, before, vat, None, None, None, None]
+
+
+def test_load_income_coerces_text_amounts_to_numbers(tmp_path):
+    """2026-09 cycle: a pre-filtered export (pandas dtype=str) carried '1281.07' and '0'
+    as text. Excel ranks any text above any number, so "0">0 was TRUE and the exempt
+    invoice landed in עסקאות חייבות. The loader must hand the sheet real numbers."""
+    p = tmp_path / "income.xlsx"
+    _write_income(p, [_income_row("חשק. 3016", "14/07/2026", "1281.07", "0")])
+    data = v.load_income(str(p))
+    cells = data["rows"][0]["cells"]
+    assert cells[data["cols"]["before_vat"]] == 1281.07
+    assert cells[data["cols"]["vat"]] == 0
+    assert isinstance(cells[data["cols"]["vat"]], float)
+
+
+def test_load_income_leaves_non_numeric_text_alone(tmp_path):
+    p = tmp_path / "income.xlsx"
+    _write_income(p, [_income_row("חשק. 3016", "14/07/2026", "n/a", None)])
+    data = v.load_income(str(p))
+    cells = data["rows"][0]["cells"]
+    assert cells[data["cols"]["before_vat"]] == "n/a"
+    assert cells[data["cols"]["vat"]] is None
+    assert cells[1] == "חשק. 3016"  # non-amount columns untouched
+
+
+def test_load_expenses_coerces_text_recognized_vat(tmp_path):
+    import openpyxl
+    from datetime import datetime
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(EXPENSE_HEADERS)
+    row = [None] * len(EXPENSE_HEADERS)
+    row[EXPENSE_HEADERS.index("תא' אסמכתא")] = datetime(2026, 7, 4)
+    row[EXPENSE_HEADERS.index("סוג הוצאה")] = "סלולר"
+    row[EXPENSE_HEADERS.index("מע\"מ מוכר")] = "12.5"
+    ws.append(row)
+    p = tmp_path / "exp.xlsx"
+    wb.save(p)
+    data = v.load_expenses(str(p))
+    assert data["rows"][0]["cells"][data["cols"]["recognized_vat"]] == 12.5
+
+
+# ---- --period: restrict the report to one bi-monthly period ----
+
+def test_parse_report_period():
+    assert v.parse_report_period("2026-07") == (2026, 7, 8)
+    assert v.parse_report_period("2026-08") == (2026, 7, 8)
+    assert v.parse_report_period("2025-12") == (2025, 11, 12)
+
+
+def test_parse_report_period_rejects_garbage():
+    with pytest.raises(ValueError):
+        v.parse_report_period("July 2026")
+    with pytest.raises(ValueError):
+        v.parse_report_period("2026-13")
+
+
+def test_select_period_keeps_only_that_bimonthly_period():
+    from datetime import datetime
+    rows = [
+        {"date": datetime(2026, 6, 30), "cells": [], "formats": []},
+        {"date": datetime(2026, 7, 14), "cells": [], "formats": []},
+        {"date": datetime(2026, 8, 31), "cells": [], "formats": []},
+        {"date": datetime(2026, 9, 1), "cells": [], "formats": []},
+    ]
+    kept = v.select_period(rows, (2026, 7, 8))
+    assert [r["date"].month for r in kept] == [7, 8]

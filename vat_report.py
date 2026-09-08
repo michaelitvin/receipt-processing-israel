@@ -203,10 +203,45 @@ def parse_date(value) -> datetime | None:
     return None
 
 
+def coerce_number(value):
+    """Return `value` as a float if it is a number or numeric-looking text, else unchanged.
+
+    The VAT sheet's SUMPRODUCT formulas compare the amount columns against 0.
+    Excel ranks ANY text above ANY number, so a text-typed "0" satisfies >0 and
+    fails =0 - an exempt invoice silently lands in עסקאות חייבות. A pre-filtered
+    or re-saved export can carry amounts as text; normalise them before they
+    reach the verbatim sheet.
+    """
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip().replace(",", ""))
+        except ValueError:
+            return value
+    return value
+
+
 def get_period(dt: datetime) -> tuple[int, int, int]:
     """Return (year, start_month, end_month) for the bi-monthly period."""
     start, end = PERIOD_MONTHS[dt.month]
     return (dt.year, start, end)
+
+
+def parse_report_period(period: str) -> tuple[int, int, int]:
+    """Parse a YYYY-MM string into the (year, start_month, end_month) bi-monthly period."""
+    try:
+        dt = datetime.strptime(period.strip(), "%Y-%m")
+    except ValueError:
+        raise ValueError(f"--period must be YYYY-MM, got {period!r}") from None
+    return get_period(dt)
+
+
+def select_period(rows: list[dict], period: tuple[int, int, int]) -> list[dict]:
+    """Keep only rows whose date falls in `period`."""
+    return [r for r in rows if get_period(r["date"]) == period]
 
 
 def period_label(year: int, start_month: int, end_month: int) -> str:
@@ -249,6 +284,7 @@ def load_icount_file(path: str, kind: str) -> dict:
 
     # Capture data rows with their formats
     date_col = cols["date"]
+    amount_cols = [i for key, i in cols.items() if key != "date" and key != "expense_type"]
     rows = []
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
         cells = [c.value for c in row]
@@ -259,6 +295,9 @@ def load_icount_file(path: str, kind: str) -> dict:
         # Replace the date cell with a parsed datetime so the verbatim sheet contains
         # comparable date values (income exports store dates as DD/MM/YYYY strings).
         cells[date_col] = dt
+        # Amount columns feed the VAT sheet formulas: make sure they are numbers.
+        for i in amount_cols:
+            cells[i] = coerce_number(cells[i])
         rows.append({"date": dt, "cells": cells, "formats": formats})
 
     rows.sort(key=lambda x: x["date"])
@@ -646,11 +685,22 @@ def main():
     parser.add_argument("--output", "-o", default=".", help="Output directory (default: current)")
     parser.add_argument("--advance-rate", "-a", type=float,
                         help="Income tax advance rate in %% (e.g. 12 for 12%%)")
+    parser.add_argument("--period", "-p",
+                        help="Reporting period as YYYY-MM; only rows in the bi-monthly "
+                             "period containing this month are reported (default: all "
+                             "periods present in the files)")
 
     args = parser.parse_args()
 
     if not args.income and not args.expenses:
         parser.error("At least one of --income or --expenses must be provided")
+
+    report_period = None
+    if args.period:
+        try:
+            report_period = parse_report_period(args.period)
+        except ValueError as e:
+            parser.error(str(e))
 
     # Resolve income tax advance rate (CLI → CONFIG.personal.yaml → None)
     advance_rate = None
@@ -690,8 +740,16 @@ def main():
     income_cols = income_data["cols"] if income_data else None
     expense_cols = expense_data["cols"] if expense_data else None
 
+    if report_period is not None:
+        n_before = len(income_rows) + len(expense_rows)
+        income_rows = select_period(income_rows, report_period)
+        expense_rows = select_period(expense_rows, report_period)
+        n_after = len(income_rows) + len(expense_rows)
+        print(f"Period {period_label(*report_period)}: kept {n_after} of {n_before} rows")
+
     if not income_rows and not expense_rows:
-        print("No items found in the provided files.")
+        print("No items found in the provided files"
+              + (f" for period {period_label(*report_period)}." if report_period else "."))
         sys.exit(1)
 
     # Group by period

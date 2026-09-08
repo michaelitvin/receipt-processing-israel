@@ -154,15 +154,19 @@ folder).
    - Expenses: הוצאות screen → filter the period's two months → export-to-Excel → download.
    - Income: מסמכים → filter the period's two months → Excel → download.
    The user feeds both files to the session.
-2. `uv run python vat_report.py -i <income.xlsx> -e <expenses.xlsx> -o ./output`
-   (either file may be omitted, but not both).
+2. `uv run python vat_report.py -i <income.xlsx> -e <expenses.xlsx> -p YYYY-MM -o ./output`
+   (either file may be omitted, but not both). Pass the downloaded exports
+   AS-IS - never pre-filter them with pandas or re-save them from Excel first.
+   `--period` does the filtering; a `dtype=str` round-trip turns the amounts
+   into text and Excel then ranks `"0"` above `0`, which put an exempt invoice
+   in עסקאות חייבות in 2026-09. The loader now coerces amounts, but there is
+   no reason to take the detour.
    - The income-tax advance rate is read from `income_tax_advance_rate` in
      `CONFIG.personal.yaml` automatically; pass `--advance-rate` only to override it.
-   - It auto-detects the reporting period(s) and splits the report per period.
-     Confirm the printed "Found N reporting period(s)" includes the period you
-     are filing. N > 1 is normal when next-month documents were imported (see
-     the period-split note at the top) - that extra block is partial and is
-     NOT filed now; only the target period's figures go to Phase 7.
+   - With `--period` the printed "kept N of M rows" line shows how many
+     next-month documents were dropped (see the period-split note at the top).
+     Without it every period in the files gets its own block; only the target
+     period's figures go to Phase 7 either way.
 
 ## Phase 7 - File & hand off
 

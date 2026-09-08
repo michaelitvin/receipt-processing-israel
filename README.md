@@ -182,8 +182,9 @@ This generates:
 #### VAT Report
 
 ```bash
-uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --output ./output
+uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --period 2026-07 --output ./output
 # Either --income or --expenses may be omitted (but not both).
+# --period YYYY-MM restricts the report to one bi-monthly period; without it every period in the files gets a block.
 # --advance-rate overrides the income_tax_advance_rate from CONFIG.personal.yaml.
 ```
 
@@ -315,6 +316,7 @@ Both are gitignored; see `docs/personal-backup.md` for how they are backed up.
 **vat_report.py:**
 - `--income` / `--expenses`: iCount export files (either may be omitted, not both)
 - `--output`: Output directory
+- `--period`: Reporting period as YYYY-MM; keeps only rows in that bi-monthly period (default: all periods in the files)
 - `--advance-rate`: Income-tax advance rate in percent (overrides CONFIG.personal.yaml)
 
 ## 🐛 Troubleshooting

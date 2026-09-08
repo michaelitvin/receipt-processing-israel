@@ -44,8 +44,10 @@ uv run python receipt_consolidator.py *.xlsx --output ./consolidated --receipts-
 
 **VAT Report - Generate bi-monthly report:**
 ```bash
-uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --output ./output
+uv run python vat_report.py --income path/to/income.xlsx --expenses path/to/expenses.xlsx --period 2026-07 --output ./output
 # Both --income and --expenses are optional (but not both).
+# --period YYYY-MM keeps only that bi-monthly period; feed the raw iCount export, never a pre-filtered copy
+# (a pandas dtype=str round-trip turns amounts into text and Excel then ranks "0" above 0).
 # The income-tax advance rate comes from CONFIG.personal.yaml; --advance-rate overrides it.
 ```
 
@@ -130,6 +132,7 @@ overlay — a plain `add -u` will silently keep the old name.
 - Windows console uses cp1252 encoding — use `PYTHONIOENCODING=utf-8` when printing Hebrew/Unicode from Python CLI
 - iCount exports: date columns are located by header text (income תאריך / expenses תא' אסמכתא - the reference date; the column beside it was relabelled תאריך ערך → לתשלום עד between cycles, so don't key on it); the income date is a DD/MM/YYYY string, the expenses date a datetime
 - iCount expenses already include pre-calculated deductibility in "מע"מ מוכר" column — use those values directly
+- vat_report's VAT sheet is formula-driven (SUMPRODUCT over the verbatim sheets). Excel ranks any text above any number, so a text-typed "0" in the מע"מ column satisfies `>0` and an exempt invoice lands in עסקאות חייבות. The loader coerces the amount columns to numbers; use `--period` instead of pre-filtering an export by hand
 - iCount converts foreign-currency invoices to ILS on import using its own rate; the consolidator leaves the שער (rate) column blank for iCount to fill. So a foreign invoice's ILS amount in the export/VAT report differs from its nominal foreign amount — expected, not an extraction error
 - Tests: `uv run pytest tests/` (covers receipt_checks, audit_batch, extractor warnings, consolidator parsing, personal_config, personal_backup, and the image_handler raster-PDF gate; no coverage for the live OpenAI API paths)
 - Raster-only PDFs (no text layer + embedded bitmap, e.g. Weezmo receipts) are detected by `ImageHandler.extraction_bitmap`, which sends the crisp embedded bitmap (via poppler's `pdfimages`) to both the API and the Excel review image instead of the raw PDF; normal text-layer PDFs keep the raw-PDF path. Needs `pdftotext`/`pdfimages` on PATH.
