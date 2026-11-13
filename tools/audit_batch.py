@@ -25,6 +25,9 @@ fixes.json is a JSON list; each entry is one of:
    "values": {"description": "...", "amount_excl_vat": 1.0, "vat": 0.2, "total": 1.2},
    "note": "optional"}
   {"sheet": "R022", "non_expense": true, "note": "required"}
+  {"sheet": "R005", "resolved": true, "note": "optional"}
+      clears the red tab and the generator's review warning once the audit
+      has settled every flag on the sheet
 
 Used by the bimonthly-cycle skill; see .claude/skills/bimonthly-cycle/SKILL.md.
 """
@@ -39,6 +42,7 @@ from copy import copy
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import unquote
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -57,6 +61,8 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 SHEET_RE = re.compile(r"R\d{3}.*")
 LINE_ITEMS_SUM_LABEL = get_excel_config().line_items_sum_label
 AUDIT_NOTE_COLOR = "CC5500"
+# ExcelGenerator._add_review_warnings writes this prefix before the warnings
+REVIEW_WARNING_PREFIX = "לבדיקה ידנית"
 
 INFO_FIELDS = {"number", "vendor", "vendor_id", "date", "document_type",
                "currency", "original_file", "reasoning"}
@@ -91,7 +97,8 @@ def parse_batch(xlsx: Path) -> list:
             elif field == "category":
                 classification["category"] = "" if value is None else value
             if field == "original_file" and cell.hyperlink:
-                source_pdf = re.sub(r"^file:///", "", cell.hyperlink.target).replace("/", "\\")
+                # Excel re-saves absolute links percent-encoded - decode them
+                source_pdf = unquote(re.sub(r"^file:///", "", cell.hyperlink.target)).replace("/", "\\")
             row += 1
 
         line_items = []
@@ -536,6 +543,14 @@ def cmd_apply_fixes(args) -> int:
         if fix.get("non_expense"):
             ws.sheet_properties.tabColor = "FF0000"
             note_row = config.header_start_row
+        elif fix.get("resolved"):
+            # the review is settled: drop the red tab and the generator's
+            # review warning (an audit note in that cell is kept)
+            ws.sheet_properties.tabColor = None
+            note_row = config.header_start_row
+            cell = ws.cell(row=note_row, column=notes_col)
+            if str(cell.value or "").startswith(REVIEW_WARNING_PREFIX):
+                cell.value = None
         elif "field" in fix:
             note_row = field_rows[fix["field"]]
             ws.cell(row=note_row, column=value_col, value=fix["value"])

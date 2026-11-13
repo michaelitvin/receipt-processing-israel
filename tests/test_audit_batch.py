@@ -102,6 +102,26 @@ def test_renamed_sheets_still_parse(batch, tmp_path):
     assert {r["sheet"] for r in receipts} == {"R001partner", "R002gas"}
 
 
+def test_parse_batch_decodes_excel_resaved_link(batch, tmp_path):
+    # Excel re-saves absolute links percent-encoded with backslashes. merge
+    # derives the image filename from source_pdf, so an undecoded "%20" made
+    # the image lookup miss for any filename with spaces.
+    from openpyxl import load_workbook
+    from shared.excel_config import get_excel_config
+    import shutil as sh
+    work = tmp_path / "resaved.xlsx"
+    sh.copy2(batch, work)
+    config = get_excel_config()
+    fields = [f for _, f in config.get_header_fields()]
+    link_row = config.header_start_row + fields.index("original_file")
+    wb = load_workbook(work)
+    wb["R001"].cell(row=link_row, column=config.header_value_column).hyperlink = (
+        "file:///G:\\My%20Drive\\Receipts%20-%20x\\Scanned%2024%20Oct.pdf")
+    wb.save(work)
+    r001 = next(r for r in parse_batch(work) if r["sheet"] == "R001")
+    assert r001["source_pdf"] == "G:\\My Drive\\Receipts - x\\Scanned 24 Oct.pdf"
+
+
 def test_check_fails_loudly_when_no_receipt_sheets(batch, tmp_path):
     # Sheets that don't match R### must not be silently skipped to a green result.
     from openpyxl import load_workbook
@@ -218,6 +238,65 @@ def test_apply_fixes_and_verify(batch, tmp_path):
 
     report, rc = run_cli("verify", work)
     assert rc == 0, report
+
+
+def test_apply_fixes_resolved_clears_red_flag(batch, tmp_path):
+    import shutil as sh
+    from openpyxl import load_workbook
+    from shared.excel_config import get_excel_config
+    work = tmp_path / "work.xlsx"
+    sh.copy2(batch, work)
+    config = get_excel_config()
+    notes_col = config.header_value_column + 2
+    # simulate the generator's review warning on R001
+    wb = load_workbook(work)
+    ws = wb["R001"]
+    ws.sheet_properties.tabColor = "FF0000"
+    ws.cell(row=config.header_start_row, column=notes_col, value="לבדיקה ידנית: חסר תז/חפ הספק")
+    wb.save(work)
+
+    fixes = [
+        {"sheet": "R001", "resolved": True, "note": "נבדק: ספק זר ללא ח.פ"},
+        {"sheet": "R002", "resolved": True},
+    ]
+    fixes_path = tmp_path / "fixes.json"
+    fixes_path.write_text(json.dumps(fixes, ensure_ascii=False), encoding="utf-8")
+    out, rc = run_cli("apply-fixes", work, fixes_path, "--backup-dir", tmp_path / "b")
+    assert rc == 0 and out["applied"] == 2
+
+    wb = load_workbook(work)
+    ws1 = wb["R001"]
+    assert ws1.sheet_properties.tabColor is None
+    assert ws1.cell(row=config.header_start_row, column=notes_col).value == "נבדק: ספק זר ללא ח.פ"
+    report, rc = run_cli("verify", work)
+    assert rc == 0, report
+
+
+def test_apply_fixes_resolved_without_note_drops_only_the_warning(batch, tmp_path):
+    import shutil as sh
+    from openpyxl import load_workbook
+    from shared.excel_config import get_excel_config
+    work = tmp_path / "work.xlsx"
+    sh.copy2(batch, work)
+    config = get_excel_config()
+    notes_col = config.header_value_column + 2
+    wb = load_workbook(work)
+    wb["R001"].sheet_properties.tabColor = "FF0000"
+    wb["R001"].cell(row=config.header_start_row, column=notes_col, value="לבדיקה ידנית: x")
+    wb["R002"].sheet_properties.tabColor = "FF0000"
+    wb["R002"].cell(row=config.header_start_row, column=notes_col, value="ביקורת: הערה קיימת")
+    wb.save(work)
+
+    fixes = [{"sheet": "R001", "resolved": True}, {"sheet": "R002", "resolved": True}]
+    fixes_path = tmp_path / "fixes.json"
+    fixes_path.write_text(json.dumps(fixes, ensure_ascii=False), encoding="utf-8")
+    run_cli("apply-fixes", work, fixes_path, "--backup-dir", tmp_path / "b")
+
+    wb = load_workbook(work)
+    assert wb["R001"].cell(row=config.header_start_row, column=notes_col).value is None
+    # an audit note is not a review warning - keep it
+    assert wb["R002"].cell(row=config.header_start_row, column=notes_col).value == "ביקורת: הערה קיימת"
+    assert wb["R002"].sheet_properties.tabColor is None
 
 
 def test_verify_catches_broken_arithmetic(batch, tmp_path):
