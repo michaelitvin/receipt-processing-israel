@@ -1064,7 +1064,7 @@ operations: `git personal log/diff/status` from the public repo checkout.
 - [ ] **Step 2: Move the README, delete the sync script, commit, push**
 
 ```bash
-cd /d/code/receipt-processing-israel-personal
+cd ../receipt-processing-israel-personal   # the sibling clone
 git mv README.md README.personal.md   # then apply the Step 1 rewrite to README.personal.md
 git rm sync-personal.ps1
 git add README.personal.md
@@ -1087,7 +1087,7 @@ Expected: EVERY path matches `*.personal.*` (e.g. `README.personal.md`,
 Confirm `git status` in the sibling clone is clean and the push in Step 2 succeeded, then:
 
 ```bash
-cd /d/code
+cd ..   # the parent folder holding both clones
 rm -rf receipt-processing-israel-personal
 ```
 
@@ -1105,7 +1105,7 @@ rm -rf receipt-processing-israel-personal
 - [ ] **Step 1: Run setup on the real project**
 
 ```bash
-cd /d/code/receipt-processing-israel
+cd receipt-processing-israel   # the public repo checkout
 uv run python tools/personal_backup.py setup
 ```
 Expected: `Overlay ready: 4 personal file(s) tracked.` (the three existing personal files, which already match the backup pushed earlier, plus the newly-renamed `README.personal.md`, which does not yet exist locally and is materialized fresh — no conflict errors).
@@ -1142,7 +1142,7 @@ tail -3 .git-personal/backup.log   # no new commit (nothing changed)
 
 - [ ] **Step 5: Update Claude auto-memory**
 
-Rewrite `C:\Users\micha\.claude\projects\D--code-receipt-processing-israel\memory\personal-files-backup-repo.md` (and its `MEMORY.md` index line) to describe the overlay: `.git-personal/` git-dir over the project tree, `git personal` alias, auto-backup hooks, `setup` for recovery, sibling clone gone, `sync-personal.ps1` gone. Keep the SSH-not-HTTPS note.
+Rewrite the Claude auto-memory file `personal-files-backup-repo.md` (and its `MEMORY.md` index line) to describe the overlay: `.git-personal/` git-dir over the project tree, `git personal` alias, auto-backup hooks, `setup` for recovery, sibling clone gone, `sync-personal.ps1` gone. Keep the SSH-not-HTTPS note.
 
 - [ ] **Step 6: Final full test run and push**
 

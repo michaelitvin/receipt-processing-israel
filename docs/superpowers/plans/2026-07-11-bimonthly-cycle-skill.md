@@ -1012,7 +1012,7 @@ Manual run-and-observe against the preserved pre-fix backup (contains real finan
 - [ ] **Step 1: Copy the pre-fix backup to a work location**
 
 ```bash
-cp "C:\Users\micha\AppData\Local\Temp\claude\D--code-receipt-processing-israel\3821df14-47f8-470d-84c7-c66f9e55b1fc\scratchpad\receipts_batch_001_BACKUP.xlsx" "C:\Users\micha\AppData\Local\Temp\claude\D--code-receipt-processing-israel\3821df14-47f8-470d-84c7-c66f9e55b1fc\scratchpad\validation_batch.xlsx"
+cp "<session scratchpad>/receipts_batch_001_BACKUP.xlsx" "<session scratchpad>/validation_batch.xlsx"
 ```
 
 (If the scratchpad backup no longer exists, skip this task and note it in the summary — the synthetic tests still gate the code.)

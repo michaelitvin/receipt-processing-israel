@@ -116,10 +116,10 @@ def test_parse_batch_decodes_excel_resaved_link(batch, tmp_path):
     link_row = config.header_start_row + fields.index("original_file")
     wb = load_workbook(work)
     wb["R001"].cell(row=link_row, column=config.header_value_column).hyperlink = (
-        "file:///G:\\My%20Drive\\Receipts%20-%20x\\Scanned%2024%20Oct.pdf")
+        "file:///X:\\Some%20Folder\\a%20-%20b\\scan%20one.pdf")
     wb.save(work)
     r001 = next(r for r in parse_batch(work) if r["sheet"] == "R001")
-    assert r001["source_pdf"] == "G:\\My Drive\\Receipts - x\\Scanned 24 Oct.pdf"
+    assert r001["source_pdf"] == "X:\\Some Folder\\a - b\\scan one.pdf"
 
 
 def test_check_fails_loudly_when_no_receipt_sheets(batch, tmp_path):
