@@ -5,7 +5,7 @@ description: Run the bi-monthly Israeli receipt cycle - extract receipts with Op
 
 # Bi-Monthly Receipt Cycle
 
-Eight phases. Announce the current phase. Never skip the audit.
+Nine phases (0-8). Announce the current phase. Never skip the audit.
 All commands run from the repo root with `PYTHONIOENCODING=utf-8`.
 
 **Corrections log:** the moment the user corrects ANYTHING (a value, a category,
@@ -24,6 +24,15 @@ block and only the target period's block is filed. `check --period` flags
 them so you can eyeball the DATE (a print date vs a charge date is the only
 real question there) - never propose holding them back, and never ask the
 user to choose; the answer is always "import now, file in their period".
+
+## Phase 0 - Gather (before extracting)
+
+Walk the user through the "Pre-cycle checklist" section of
+`AUDIT_KNOWLEDGE.personal.md` item by item (typically: collect the period's
+expense documents from email per the user's how-to doc, confirm the period's
+income is registered in iCount) and wait for confirmation before Phase 1. If
+the section is missing, ask what they gather before a cycle and offer to
+record it there.
 
 ## Phase 1 - Extract
 
