@@ -6,7 +6,15 @@
 Subcommands (JSON in/out, UTF-8):
   manifest <xlsx>                       dump per-sheet receipt data
   check <xlsx> [--period YYYY-MM]      structural checks (exit 1 if issues)
-  agent-prompts <xlsx> [--chunk N]     visual-verification agent prompts
+  textcheck <xlsx> [--sources-dir DIR]  extracted values must appear in the source
+                                        PDF's text layer (exit 1 on findings); lists
+                                        sheets with no text layer under "visual"
+  agent-prompts <xlsx> [--chunk N] [--sheets R004 ...]
+                                        BLIND transcription prompts (no extracted
+                                        values) for the "visual" sheets
+  reconcile <xlsx> <transcriptions.json>
+                                        compare agents' JSON transcriptions with the
+                                        workbook in code (exit 1 on findings)
   apply-fixes <xlsx> <fixes.json> --backup-dir DIR
   verify <xlsx>                        post-fix integrity (exit 1 if broken)
   recurring <xlsx>...                   warn if an expected recurring vendor is
@@ -37,6 +45,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from copy import copy
 from datetime import datetime, timedelta
@@ -451,63 +460,61 @@ def cmd_check(args) -> int:
     return 1 if issues else 0
 
 
-PROMPT_HEADER = """You are auditing extracted receipt data against the actual receipt \
-images for an Israeli tax-reporting pipeline. Hebrew receipts read right-to-left.
+PROMPT_HEADER = """You are transcribing receipt documents for an Israeli tax-reporting \
+audit. Hebrew receipts read right-to-left. You are NOT shown what was extracted \
+from these documents - your reading is compared against it by code afterwards, \
+so read every value off the document itself.
 
-For each receipt below, follow this exact order:
-1. Read the JPG image with the Read tool and TRANSCRIBE the key printed values \
-BEFORE looking at the extracted values: vendor name, vendor tax id (ח.פ/עוסק), \
-receipt/invoice number, date, net amount, VAT, total, currency, document type \
-(חשבונית / קבלה / חשבונית מס קבלה). Report your transcription.
-2. Only then compare your transcription against the extracted values listed for \
-that receipt and note real differences.
-3. Judge whether the page-1 JPG is representative for human review: does it show \
-the vendor and total, or is it a cover page/email with the invoice on a later page?
-
-If the page-1 JPG lacks the needed values, render more pages of the source PDF \
-(run from {repo}):
+For each receipt below:
+1. Read the JPG image with the Read tool. If it lacks the needed values (cover \
+page, email body, cropped), render more pages of the source PDF (run from {repo}):
   uv run python -c "import pdf2image; [im.save(rf'{scratch}\\audit_page_{{i}}.jpg','JPEG') \
 for i,im in enumerate(pdf2image.convert_from_path(r'<SOURCE_PDF>', dpi=150))]"
-then Read those page JPGs.
+   then Read those page JPGs. For long digit strings that are hard to read, \
+crop and enlarge the region with PIL (save the crop in the scratch directory) \
+and Read the crop.
+2. Copy numbers CHARACTER BY CHARACTER and count their digits. Never round, \
+never reformat a number, never guess a digit - use null for anything you \
+cannot read with certainty.
 
-Do NOT modify any files except temp page renders in the scratch directory.
+Do NOT modify any files except temp renders/crops in the scratch directory: {scratch}
 
 """
 
 PROMPT_FOOTER = """
-Return one block per receipt, exactly this shape:
-SHEET_NAME: VERDICT (OK / MISMATCH / IMAGE-NOT-REPRESENTATIVE / UNVERIFIABLE)
-- transcribed: <the values you read off the image>
-- mismatches: <field: extracted vs printed - only real differences, or 'none'>
-- image_representative: yes/no + what page 1 shows
-- notes: <anything odd: possible duplicate, wrong doc type, non-expense document, \
-unusual billing entity, unreadable areas>"""
+Return ONLY a JSON array (in a ```json fence), one object per receipt, keys:
+  "sheet": the sheet name given above
+  "verdict": "READ" | "UNVERIFIABLE" (cannot read the key values) | \
+"IMAGE-NOT-REPRESENTATIVE" (page 1 JPG does not show vendor and total)
+  "vendor": vendor name as printed
+  "vendor_ids": [every business id printed for the SELLER: ח.פ, ע.מ, עוסק מורשה, \
+VAT no.] - not the buyer's id
+  "number": the document's own number (חשבונית / קבלה / invoice / receipt no.)
+  "number_digits": count of digits in "number"
+  "other_numbers": [every other long reference printed: UID, transaction/עסקה, \
+voucher/שובר, order, account numbers] - exactly as printed
+  "date": document date as YYYY-MM-DD
+  "currency": "ILS" | "USD" | "EUR" | ...
+  "document_type": as printed (e.g. חשבונית מס קבלה, Receipt, Invoice)
+  "total_excl_vat", "vat_amount", "total_incl_vat": numbers as printed \
+(the amount actually charged/paid on this document)
+  "notes": anything odd - possible duplicate, non-expense document (certificate, \
+confirmation), billing entity, partial payment, unreadable areas
+Use null for any value not printed or not readable."""
 
 
 def _receipt_prompt_block(r: dict) -> str:
-    info, amounts = r["receipt_info"], r["amounts"]
-    return (
-        f"{r['sheet']}:\n"
-        f"  image: {r['image_jpg']}\n"
-        f"  source_pdf: {r['source_pdf']}\n"
-        f"  extracted values for comparison (step 2): "
-        f"receipt_number={info.get('number')!r}, vendor={info.get('vendor')!r}, "
-        f"vendor_id={info.get('vendor_id')!r}, date={info.get('date')!r}, "
-        f"doc_type={info.get('document_type')!r}, currency={info.get('currency')!r}, "
-        f"net={amounts.get('total_excl_vat')}, vat={amounts.get('vat_amount')}, "
-        f"total={amounts.get('total_incl_vat')}, "
-        f"category={r['classification'].get('category')!r}\n"
-        f"  extracted line items: "
-        + "; ".join(
-            f"{li['description']} (net={li['amount_excl_vat']}, vat={li['vat']}, "
-            f"total={li['total']}, deductible={li['deductible']})"
-            for li in r["line_items"]) + "\n"
-    )
+    # Blind by design: paths only, never extracted values (see PROMPT_HEADER).
+    return (f"{r['sheet']}:\n"
+            f"  image: {r['image_jpg']}\n"
+            f"  source_pdf: {r['source_pdf']}\n")
 
 
 def cmd_agent_prompts(args) -> int:
     receipts = parse_batch(args.xlsx)
     _require_sheets(receipts)
+    if getattr(args, "sheets", None):
+        receipts = [r for r in receipts if r["sheet"] in set(args.sheets)]
     repo = Path(__file__).parent.parent
     header = PROMPT_HEADER.format(repo=repo, scratch=args.scratch)
     prompts = []
@@ -519,6 +526,216 @@ def cmd_agent_prompts(args) -> int:
         prompts.append({"label": label, "prompt": header + body + PROMPT_FOOTER})
     print(json.dumps(prompts, ensure_ascii=False, indent=1))
     return 0
+
+
+# --- reconcile: compare blind transcriptions against the workbook in code ---
+
+RECONCILE_AMOUNTS = ("total_excl_vat", "vat_amount", "total_incl_vat")
+
+
+def _ref_key(v) -> str:
+    """Normalize a reference number/id for comparison: alphanumerics only, upper."""
+    return re.sub(r"[^0-9A-Za-z]", "", str(v or "")).upper()
+
+
+def _edit_distance(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def _ref_finding(field: str, extracted, candidates: list) -> Optional[dict]:
+    """None if `extracted` equals one of the printed candidates; otherwise a finding.
+
+    near_miss = within 2 edits of a printed value (a dropped/extra/swapped digit):
+    a typo to fix, not a judgment call.
+    """
+    ext = _ref_key(extracted)
+    cands = [c for c in (_ref_key(x) for x in candidates) if c]
+    if not ext and not cands:
+        return None
+    if not ext:
+        return {"field": field, "kind": "missing", "extracted": extracted, "printed": candidates}
+    if ext in cands:
+        return None
+    if not cands:
+        return {"field": field, "kind": "not_on_document", "extracted": extracted}
+    best = min(cands, key=lambda c: _edit_distance(ext, c))
+    kind = "near_miss" if _edit_distance(ext, best) <= 2 else "mismatch"
+    return {"field": field, "kind": kind, "extracted": extracted, "printed": best,
+            "digits": {"extracted": len(re.sub(r"\D", "", ext)),
+                       "printed": len(re.sub(r"\D", "", best))}}
+
+
+def _reconcile_one(r: dict, t: dict) -> list:
+    info, amounts = r["receipt_info"], r["amounts"]
+    findings = []
+    for f in (_ref_finding("number", info.get("number"),
+                           [t.get("number")] + list(t.get("other_numbers") or [])),
+              _ref_finding("vendor_id", info.get("vendor_id"), list(t.get("vendor_ids") or []))):
+        if f:
+            findings.append(f)
+    if t.get("date") and str(info.get("date") or "")[:10] != t["date"]:
+        findings.append({"field": "date", "kind": "mismatch",
+                         "extracted": info.get("date"), "printed": t["date"]})
+    if t.get("currency") and str(info.get("currency") or "").upper() != str(t["currency"]).upper():
+        findings.append({"field": "currency", "kind": "mismatch",
+                         "extracted": info.get("currency"), "printed": t["currency"]})
+    for k in RECONCILE_AMOUNTS:
+        printed = t.get(k)
+        if printed is None:
+            continue
+        if abs(_num(amounts.get(k)) - _num(printed)) > 0.01:
+            findings.append({"field": k, "kind": "mismatch",
+                             "extracted": amounts.get(k), "printed": printed})
+    return findings
+
+
+def cmd_reconcile(args) -> int:
+    receipts = {r["sheet"]: r for r in parse_batch(args.xlsx)}
+    _require_sheets(list(receipts.values()))
+    transcriptions = json.loads(Path(args.transcriptions).read_text(encoding="utf-8"))
+    out = {"matched": [], "findings": {}, "unverifiable": {}, "not_representative": {},
+           "unknown_sheets": [], "not_transcribed": []}
+    seen = set()
+    for t in transcriptions:
+        sheet = t.get("sheet")
+        if sheet not in receipts:
+            out["unknown_sheets"].append(sheet)
+            continue
+        seen.add(sheet)
+        verdict = str(t.get("verdict") or "READ").upper()
+        if verdict == "UNVERIFIABLE":
+            out["unverifiable"][sheet] = t.get("notes") or ""
+            continue
+        if verdict == "IMAGE-NOT-REPRESENTATIVE":
+            out["not_representative"][sheet] = t.get("notes") or ""
+        found = _reconcile_one(receipts[sheet], t)
+        if found:
+            out["findings"][sheet] = found
+        else:
+            out["matched"].append(sheet)
+    out["not_transcribed"] = [s for s in receipts if s not in seen]
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    bad = out["findings"] or out["unverifiable"] or out["unknown_sheets"]
+    return 1 if bad else 0
+
+
+# --- textcheck: extracted values must appear in the source PDF's text layer ---
+
+MIN_TEXT_LAYER_CHARS = 30
+_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def _pdf_text(path: Path) -> str:
+    """pdftotext -layout via an ASCII-named temp copy (poppler on Windows cannot
+    open non-ASCII paths, and a failed open looks exactly like an empty text layer)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d) / "source.pdf"
+        shutil.copyfile(path, tmp)
+        result = subprocess.run(["pdftotext", "-layout", str(tmp), "-"], capture_output=True)
+    if result.returncode != 0:
+        return ""
+    return result.stdout.decode("utf-8", "replace")
+
+
+def _present(token: str, haystacks: list) -> bool:
+    pat = re.compile(rf"(?<![0-9A-Za-z]){re.escape(token)}(?![0-9A-Za-z])", re.IGNORECASE)
+    return any(pat.search(h) for h in haystacks)
+
+
+def _amount_present(value, haystacks: list) -> bool:
+    x = _num(value)
+    forms = {f"{x:.2f}", f"{x:,.2f}"}
+    if x == int(x):
+        forms |= {str(int(x)), f"{int(x):,}"}
+    pats = [re.compile(rf"(?<![\d.,]){re.escape(f)}(?![\d]|[.,]\d)") for f in forms]
+    return any(p.search(h) for p in pats for h in haystacks)
+
+
+def _date_present(date_str: str, haystacks: list) -> bool:
+    try:
+        d = datetime.strptime(date_str[:10], "%Y-%m-%d")
+    except ValueError:
+        return False
+    dd, mm, yyyy, yy = f"{d.day:02d}", f"{d.month:02d}", str(d.year), str(d.year)[2:]
+    forms = {f"{dd}{s}{mm}{s}{y}" for s in "/.-" for y in (yyyy, yy)}
+    forms |= {f"{d.day}/{d.month}/{yyyy}", f"{yyyy}-{mm}-{dd}", f"{yyyy}/{mm}/{dd}"}
+    if any(_present(f, haystacks) for f in forms):
+        return True
+    mon = _MONTHS[d.month - 1]
+    pats = [re.compile(rf"\b{mon}[a-z]*\.? {d.day},? {yyyy}\b", re.IGNORECASE),
+            re.compile(rf"\b{d.day} {mon}[a-z]*\.?,? {yyyy}\b", re.IGNORECASE)]
+    return any(p.search(h) for p in pats for h in haystacks)
+
+
+def text_findings(r: dict, text: str) -> list:
+    """Values of receipt `r` that do not appear in `text` (a PDF text layer).
+
+    Matching is boundary-strict, so an extracted number with a digit missing does
+    not 'match' inside the longer printed one.
+    """
+    text = text.replace("‎", "").replace("‏", "")
+    flat = re.sub(r"\s+", " ", text)
+    joined = re.sub(r"(?<=\d)[ -](?=\d)", "", flat)  # "51-123456-7" / "5123 4567"
+    hay = [flat, joined]
+    info, amounts = r["receipt_info"], r["amounts"]
+    out = []
+    for field in ("number", "vendor_id"):
+        v = str(info.get(field) or "").strip()
+        if v and not (_present(v, hay) or _present(_ref_key(v), hay)):
+            out.append(f"{field}={v} not in text")
+    d = str(info.get("date") or "")
+    if d and not _date_present(d, hay):
+        out.append(f"date={d[:10]} not in text")
+    for k in RECONCILE_AMOUNTS:
+        v = amounts.get(k)
+        if _num(v) and not _amount_present(v, hay):
+            out.append(f"{k}={v} not in text")
+    li_total = round(sum(_num(li.get("total")) for li in r["line_items"]), 2)
+    if r["line_items"] and abs(li_total - _num(amounts.get("total_incl_vat"))) > 0.02:
+        out.append(f"line items sum {li_total} != total_incl_vat")
+    return out
+
+
+def _resolve_source(r: dict, sources_dir: Optional[Path]) -> Optional[Path]:
+    if r["source_pdf"] and Path(r["source_pdf"]).exists():
+        return Path(r["source_pdf"])
+    name = Path(str(r["receipt_info"].get("original_file") or r["source_pdf"] or "")).name
+    if sources_dir and name and (Path(sources_dir) / name).exists():
+        return Path(sources_dir) / name
+    return None
+
+
+def cmd_textcheck(args) -> int:
+    receipts = parse_batch(args.xlsx)
+    _require_sheets(receipts)
+    out = {"clean": [], "findings": {}, "visual": {}}
+    for r in receipts:
+        src = _resolve_source(r, getattr(args, "sources_dir", None))
+        if src is None:
+            out["visual"][r["sheet"]] = "source not found"
+            continue
+        if src.suffix.lower() != ".pdf":
+            out["visual"][r["sheet"]] = "image source"
+            continue
+        text = _pdf_text(src)
+        if len(text.strip()) < MIN_TEXT_LAYER_CHARS:
+            out["visual"][r["sheet"]] = "no text layer"
+            continue
+        found = text_findings(r, text)
+        if found:
+            out["findings"][r["sheet"]] = found
+        else:
+            out["clean"].append(r["sheet"])
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    return 1 if out["findings"] else 0
 
 
 def cmd_apply_fixes(args) -> int:
@@ -640,7 +857,22 @@ def main() -> int:
     p.add_argument("--chunk", type=int, default=6)
     p.add_argument("--scratch", default=str(Path.home() / "AppData" / "Local" / "Temp"),
                    help="directory agents may write temp page renders to")
+    p.add_argument("--sheets", nargs="*", metavar="SHEET",
+                   help="only these sheets (e.g. the textcheck 'visual' list)")
     p.set_defaults(func=cmd_agent_prompts)
+
+    p = sub.add_parser("textcheck", help="check extracted values against each source "
+                                         "PDF's text layer; lists sheets needing visual audit")
+    p.add_argument("xlsx", type=Path)
+    p.add_argument("--sources-dir", type=Path,
+                   help="fallback folder to find originals by filename")
+    p.set_defaults(func=cmd_textcheck)
+
+    p = sub.add_parser("reconcile", help="compare blind agent transcriptions (JSON) "
+                                         "against the workbook")
+    p.add_argument("xlsx", type=Path)
+    p.add_argument("transcriptions", type=Path)
+    p.set_defaults(func=cmd_reconcile)
 
     p = sub.add_parser("apply-fixes", help="apply a fixes.json to the workbook")
     p.add_argument("xlsx", type=Path)

@@ -182,15 +182,24 @@ def test_recurring_no_config_is_noop(batch, monkeypatch, capsys):
     assert "note" in json.loads(capsys.readouterr().out)
 
 
-def test_agent_prompts_values_from_manifest(batch):
+def test_agent_prompts_are_blind(batch):
+    # The audit agent must never see the extracted values: an agent shown
+    # "number=X" "confirms" X instead of reading the digits off the image.
     prompts, _ = run_cli("agent-prompts", batch, "--chunk", "1")
     assert len(prompts) == 2  # 2 receipts, chunk size 1
     p1 = prompts[0]["prompt"]
-    assert "111" in p1 and "total=118" in p1 and "ספק בדיקה" in p1
     assert "one.jpg" in p1
-    # anti-anchoring: transcription instruction precedes the extracted values
-    assert p1.index("TRANSCRIBE") < p1.index("extracted values for comparison")
+    assert "111" not in p1 and "118" not in p1 and "ספק בדיקה" not in p1
+    assert "total=" not in p1 and "extracted values" not in p1
+    assert '"number_digits"' in p1  # agents must count long numbers
     assert prompts[0]["label"] == "audit:R001"
+
+
+def test_agent_prompts_sheets_filter(batch):
+    prompts, _ = run_cli("agent-prompts", batch, "--chunk", "6", "--sheets", "R002")
+    assert len(prompts) == 1
+    assert prompts[0]["label"] == "audit:R002"
+    assert "two.jpg" in prompts[0]["prompt"] and "one.jpg" not in prompts[0]["prompt"]
 
 
 def test_agent_prompts_chunking(batch):
@@ -406,3 +415,114 @@ def test_merge_preserves_names_notes_and_drops(batch, tmp_path, capsys):
     assert parsed["R003"]["receipt_info"]["number"] == "111"
     assert parsed["R003"]["amounts"]["total_incl_vat"] == 118.0
     assert audit_batch.cmd_verify(argparse.Namespace(xlsx=out)) == 0
+
+
+# --- textcheck: extracted values must appear in the source's text layer ---
+
+GOOD_TEXT = ("Tax invoice 111   Date: 10/05/2026   Dealer no. 510\n"
+             "Net 100.00  VAT 18% 18.00  Total 118.00")
+
+
+def _textcheck(batch, tmp_path, monkeypatch, texts):
+    import argparse
+    import audit_batch
+    src = tmp_path / "sources"
+    src.mkdir(exist_ok=True)
+    for name in texts:
+        (src / name).write_bytes(b"%PDF-1.4 stub")
+    monkeypatch.setattr(audit_batch, "_pdf_text", lambda path: texts[Path(path).name])
+    return audit_batch.cmd_textcheck(argparse.Namespace(xlsx=batch, sources_dir=src))
+
+
+def test_textcheck_passes_when_values_printed(batch, tmp_path, monkeypatch, capsys):
+    rc = _textcheck(batch, tmp_path, monkeypatch, {"one.pdf": GOOD_TEXT, "two.pdf": ""})
+    out = json.loads(capsys.readouterr().out)
+    assert out["clean"] == ["R001"]
+    assert out["findings"] == {}
+    assert out["visual"] == {"R002": "no text layer"}
+    assert rc == 0
+
+
+def test_textcheck_flags_number_with_extra_digit(batch, tmp_path, monkeypatch, capsys):
+    # the extracted 111 must not "match" inside a longer printed number
+    rc = _textcheck(batch, tmp_path, monkeypatch,
+                    {"one.pdf": GOOD_TEXT.replace("invoice 111", "invoice 1112"),
+                     "two.pdf": ""})
+    out = json.loads(capsys.readouterr().out)
+    assert any("number" in f for f in out["findings"]["R001"])
+    assert rc == 1
+
+
+def test_textcheck_flags_wrong_amount_and_date(batch, tmp_path, monkeypatch, capsys):
+    text = GOOD_TEXT.replace("Total 118.00", "Total 181.00").replace("10/05/2026", "11/05/2026")
+    rc = _textcheck(batch, tmp_path, monkeypatch, {"one.pdf": text, "two.pdf": ""})
+    found = json.loads(capsys.readouterr().out)["findings"]["R001"]
+    assert any("total_incl_vat" in f for f in found)
+    assert any("date" in f for f in found)
+    assert rc == 1
+
+
+def test_textcheck_missing_source_goes_to_visual(batch, tmp_path, monkeypatch, capsys):
+    import argparse
+    import audit_batch
+    rc = audit_batch.cmd_textcheck(argparse.Namespace(xlsx=batch, sources_dir=tmp_path / "none"))
+    out = json.loads(capsys.readouterr().out)
+    assert set(out["visual"]) == {"R001", "R002"}
+    assert rc == 0
+
+
+# --- reconcile: blind transcriptions vs the workbook, compared in code ---
+
+def _reconcile(batch, tmp_path, capsys, transcriptions):
+    import argparse
+    import audit_batch
+    f = tmp_path / "transcriptions.json"
+    f.write_text(json.dumps(transcriptions, ensure_ascii=False), encoding="utf-8")
+    rc = audit_batch.cmd_reconcile(argparse.Namespace(xlsx=batch, transcriptions=f))
+    return rc, json.loads(capsys.readouterr().out)
+
+
+R001_READ = {"sheet": "R001", "verdict": "READ", "number": "111", "number_digits": 3,
+             "other_numbers": ["99887766554433"], "vendor_ids": ["510"],
+             "date": "2026-05-10", "currency": "ILS",
+             "total_excl_vat": 100.0, "vat_amount": 18.0, "total_incl_vat": 118.0}
+
+
+def test_reconcile_clean(batch, tmp_path, capsys):
+    rc, out = _reconcile(batch, tmp_path, capsys, [R001_READ])
+    assert out["findings"] == {}
+    assert out["matched"] == ["R001"]
+    assert out["not_transcribed"] == ["R002"]
+    assert rc == 0
+
+
+def test_reconcile_accepts_number_from_other_numbers(batch, tmp_path, capsys):
+    t = dict(R001_READ, number="5550001", other_numbers=["111"])
+    rc, out = _reconcile(batch, tmp_path, capsys, [t])
+    assert out["findings"] == {}
+    assert rc == 0
+
+
+def test_reconcile_flags_one_digit_typo_as_near_miss(batch, tmp_path, capsys):
+    # printed 1111 vs extracted 111 - exactly the "extra digit" class of error
+    t = dict(R001_READ, number="1111", number_digits=4, other_numbers=[])
+    rc, out = _reconcile(batch, tmp_path, capsys, [t])
+    (finding,) = out["findings"]["R001"]
+    assert finding["field"] == "number" and finding["kind"] == "near_miss"
+    assert rc == 1
+
+
+def test_reconcile_flags_amount_date_and_unverifiable(batch, tmp_path, capsys):
+    t = dict(R001_READ, total_incl_vat=181.0, date="2026-05-11")
+    u = {"sheet": "R002", "verdict": "UNVERIFIABLE", "notes": "blurred"}
+    rc, out = _reconcile(batch, tmp_path, capsys, [t, u])
+    fields = {f["field"] for f in out["findings"]["R001"]}
+    assert fields == {"total_incl_vat", "date"}
+    assert out["unverifiable"] == {"R002": "blurred"}
+    assert rc == 1
+
+
+def test_reconcile_unknown_sheet_is_reported(batch, tmp_path, capsys):
+    rc, out = _reconcile(batch, tmp_path, capsys, [R001_READ, dict(R001_READ, sheet="R099")])
+    assert out["unknown_sheets"] == ["R099"]
+    assert rc == 1

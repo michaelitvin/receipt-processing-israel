@@ -10,7 +10,7 @@ This is a two-stage receipt processing system for Israeli tax reporting that use
 **Stage 2**: `receipt_consolidator.py` - Processes reviewed Excel files and consolidates them into iCount-ready XLS format (true Excel 97-2003) with organized receipt files
 **VAT Report**: `vat_report.py` - Generates bi-monthly VAT report from iCount income/expenses exports with VAT calculation, split by reporting period
 
-**Audit tooling**: `tools/audit_batch.py` - manifest/check/agent-prompts/apply-fixes/verify/recurring subcommands over extraction batch xlsx files; structural checks shared with the extractor via `shared/receipt_checks.py`. The `bimonthly-cycle` project skill orchestrates the full cycle. `AUDIT_KNOWLEDGE.personal.md` (untracked) holds personal audit context.
+**Audit tooling**: `tools/audit_batch.py` - manifest/check/textcheck/agent-prompts/reconcile/apply-fixes/verify/recurring/history/merge subcommands over extraction batch xlsx files (audit agents transcribe blind - prompts carry no extracted values - and `reconcile` compares in code); structural checks shared with the extractor via `shared/receipt_checks.py`. The `bimonthly-cycle` project skill orchestrates the full cycle. `AUDIT_KNOWLEDGE.personal.md` (untracked) holds personal audit context.
 
 ## Development Commands
 

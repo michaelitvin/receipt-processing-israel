@@ -52,8 +52,11 @@ The audit exists because it is INDEPENDENT of extraction. Never weaken that:
   false bugs that survived until a backup comparison exposed them.)
 - **HARD RULE: back up before editing, `verify` after.** `apply-fixes` does
   both; do not edit the workbook with ad-hoc scripts.
-- Agents transcribe the image FIRST, then compare - the prompts enforce this;
-  do not reorder.
+- **HARD RULE: agents transcribe BLIND and code compares.** `agent-prompts`
+  gives agents only image/source paths - never the extracted values - and they
+  return JSON; `reconcile` does the comparison. Never paste extracted values
+  into a prompt or "compare by eye" yourself: an agent once shown a 24-digit
+  receipt number "transcribed" the same extra digit and marked it OK.
 
 Steps (`BATCH` = the batch xlsx path):
 
@@ -82,24 +85,37 @@ Steps (`BATCH` = the batch xlsx path):
      to locate each one or confirm it genuinely stopped. Annual vendors
      (insurance, CPA) show up here only when their month comes round.
    - `new_vendors`: no history - nothing to compare, just be aware.
-2. `uv run python tools/audit_batch.py agent-prompts BATCH --scratch <session scratchpad>`
+2. `uv run python tools/audit_batch.py textcheck BATCH --sources-dir <originals folder>`
+   - every number, id, date and amount must appear (boundary-strict) in the
+   source PDF's text layer. `findings` are leads, not verdicts: a vendor id
+   normalized from `history` is often not printed, and Hebrew month names or a
+   garbled layer defeat the matcher - confirm each by `pdftotext` or by reading
+   the image. Sheets under `visual` (scans, image sources, no text layer) go to
+   step 3; add any `findings` sheet whose text layer is unusable.
+3. `uv run python tools/audit_batch.py agent-prompts BATCH --sheets <visual sheets> --scratch <session scratchpad>`
    then dispatch each prompt to a general-purpose subagent (parallel, background).
-3. Reconcile agent transcriptions against the manifest. Consult
-   `AUDIT_KNOWLEDGE.personal.md` - known anomalies are not findings.
-   `UNVERIFIABLE` verdicts: read the image yourself; re-dispatch a dead agent's
-   chunk once before reading directly.
+   Write each prompt to a file and tell the agent to Read it (verbatim, never
+   retyped). Collect the agents' JSON arrays into one `transcriptions.json`.
+4. `uv run python tools/audit_batch.py reconcile BATCH transcriptions.json`.
+   `near_miss` = a digit dropped/added/swapped versus the printed value: almost
+   always an extraction typo - fix it. `mismatch` on `number` often means the
+   agent picked a different printed reference (UID vs transaction number) -
+   check `other_numbers` and the image. `not_transcribed` must list only the
+   textcheck-clean sheets; anything else was missed by a dead agent - re-dispatch
+   once, then read it yourself. `UNVERIFIABLE`: read the image yourself.
+   Consult `AUDIT_KNOWLEDGE.personal.md` - known anomalies are not findings.
    **Verify every proposed VALUE before it goes into `fixes.json`** - `pdftotext`
    on the source (or read the image) for receipt numbers and ids. An agent once
    proposed a "corrected" receipt number that was a print-form reference next
    to the timestamp; both strings were in the PDF. Agents find candidates; you
    confirm them.
-4. Write `fixes.json` (schema in `tools/audit_batch.py` docstring/tests):
+5. Write `fixes.json` (schema in `tools/audit_batch.py` docstring/tests):
    corrected values with Hebrew audit notes, `non_expense: true` for documents
    that are not expenses (certificates, confirmations - do not delete sheets).
-5. `uv run python tools/audit_batch.py apply-fixes BATCH fixes.json --backup-dir <session scratchpad>`
+6. `uv run python tools/audit_batch.py apply-fixes BATCH fixes.json --backup-dir <session scratchpad>`
    - exit 3 means the file is open in Excel: ask the user to close it, retry once.
-6. `uv run python tools/audit_batch.py verify BATCH` must exit 0.
-7. Report to the user: values fixed (with evidence), items needing their
+7. `uv run python tools/audit_batch.py verify BATCH` must exit 0.
+8. Report to the user: values fixed (with evidence), items needing their
    judgment (billing entity, deductibility), suspected non-expense documents.
 
 ## Phase 3 - Human review
