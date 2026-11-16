@@ -249,6 +249,15 @@ the `.git-personal` overlay, `git personal log/diff`; see docs/personal-backup.m
   link form first.
 - Windows console is cp1252 - Hebrew output needs `PYTHONIOENCODING=utf-8`.
 - Weezmo/EZcount/invoice4u are receipt-delivery platforms, never the vendor.
+- A payment-platform summary (PayPal, Stripe) is not a receipt - flag it and ask
+  the supplier for the actual receipt.
+- An invoice paid in several parts: the extractor copies the invoice total onto
+  every partial receipt, counting the invoice twice. Each receipt's amount must
+  be what was actually paid on it.
+- `merge --drop` drops the named sheets from EVERY input. If a new batch also has
+  sheets named R001/R002, a single `merge out.xlsx review.xlsx NEW --drop R001
+  R002` throws the new ones away too. Merge in two steps: first `merge step1.xlsx
+  review.xlsx --drop R001 R002`, then `merge step2.xlsx NEW step1.xlsx`.
 - A receipt's printed total may differ from net+VAT by one agora - that is
   receipt rounding, not an extraction error (tolerance 0.02).
 - Dumping sheet rows with a hardcoded row cap once hid real line items and
