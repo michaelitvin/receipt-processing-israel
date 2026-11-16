@@ -6,8 +6,9 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Iterator, List, Optional, Union
 from PIL import Image
 import pdf2image
 import io
@@ -74,6 +75,24 @@ class ImageHandler:
             logger.error(f"Error processing image {image_path}: {e}")
             raise
             
+    @staticmethod
+    @contextmanager
+    def _poppler_safe_path(pdf_path: Path) -> Iterator[Path]:
+        """Yield a path poppler can open: the original if ASCII, else a temp copy.
+
+        Windows builds of poppler/xpdf read argv in the ANSI code page, so a
+        non-ASCII path (e.g. a Hebrew Google Drive filename) fails to open -
+        pdftotext then reports an empty text layer. Copy such files to an
+        ASCII name in a private temp dir for the duration of the call.
+        """
+        if str(pdf_path).isascii():
+            yield pdf_path
+            return
+        with tempfile.TemporaryDirectory() as td:
+            safe = Path(td) / 'input.pdf'
+            shutil.copyfile(pdf_path, safe)
+            yield safe
+
     @classmethod
     def _pdf_text_char_count(cls, pdf_path: Path) -> int:
         """Non-whitespace chars in the PDF's text layer; -1 if unknowable.
@@ -85,8 +104,13 @@ class ImageHandler:
         if not exe:
             return -1
         try:
-            out = subprocess.run([exe, str(pdf_path), '-'],
-                                 capture_output=True, timeout=30)
+            with cls._poppler_safe_path(pdf_path) as safe:
+                out = subprocess.run([exe, str(safe), '-'],
+                                     capture_output=True, timeout=30)
+            if out.returncode != 0:
+                logger.debug(f"pdftotext exit {out.returncode} on {pdf_path}: "
+                             f"{out.stderr.decode('utf-8', 'replace').strip()}")
+                return -1
             return len(''.join(out.stdout.decode('utf-8', 'replace').split()))
         except Exception as e:
             logger.debug(f"pdftotext failed on {pdf_path}: {e}")
@@ -104,8 +128,9 @@ class ImageHandler:
             return None
         with tempfile.TemporaryDirectory() as td:
             try:
-                subprocess.run([exe, '-png', str(pdf_path), str(Path(td) / 'e')],
-                               capture_output=True, timeout=60, check=True)
+                with cls._poppler_safe_path(pdf_path) as safe:
+                    subprocess.run([exe, '-png', str(safe), str(Path(td) / 'e')],
+                                   capture_output=True, timeout=60, check=True)
             except Exception as e:
                 logger.debug(f"pdfimages failed on {pdf_path}: {e}")
                 return None
