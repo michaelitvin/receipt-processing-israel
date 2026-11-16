@@ -112,9 +112,14 @@ Steps (`BATCH` = the batch xlsx path):
 5. Write `fixes.json` (schema in `tools/audit_batch.py` docstring/tests):
    corrected values with Hebrew audit notes, `non_expense: true` for documents
    that are not expenses (certificates, confirmations - do not delete sheets).
+   To blank a wrongly filled field (a bogus `vendor_id`, a stray `currency`)
+   use `"value": null` - the only way to clear a cell; `""` or a missing
+   `"value"` is rejected (exit 2) rather than silently clearing anything.
 6. `uv run python tools/audit_batch.py apply-fixes BATCH fixes.json --backup-dir <session scratchpad>`
    - exit 3 means the file is open in Excel: ask the user to close it, retry once.
-7. `uv run python tools/audit_batch.py verify BATCH` must exit 0.
+7. `uv run python tools/audit_batch.py verify BATCH --fixes fixes.json` must
+   exit 0 (`--fixes` also confirms every fix landed; a null fix must have left
+   its cell empty).
 8. Report to the user: values fixed (with evidence), items needing their
    judgment (billing entity, deductibility), suspected non-expense documents.
 

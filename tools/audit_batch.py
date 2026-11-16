@@ -16,7 +16,8 @@ Subcommands (JSON in/out, UTF-8):
                                         compare agents' JSON transcriptions with the
                                         workbook in code (exit 1 on findings)
   apply-fixes <xlsx> <fixes.json> --backup-dir DIR
-  verify <xlsx>                        post-fix integrity (exit 1 if broken)
+  verify <xlsx> [--fixes fixes.json]   post-fix integrity (exit 1 if broken); with
+                                        --fixes, also checks each fix landed
   recurring <xlsx>...                   warn if an expected recurring vendor is
                                         missing (reads RECURRING_VENDORS.personal.yaml)
   history <xlsx>... [--period YYYY-MM] [--past DIR ...]
@@ -29,9 +30,13 @@ Subcommands (JSON in/out, UTF-8):
 
 fixes.json is a JSON list; each entry is one of:
   {"sheet": "R001", "field": "vendor", "value": "X", "note": "optional"}
+  {"sheet": "R003", "field": "vendor_id", "value": null, "note": "optional"}
+      "value": null CLEARS the cell (the only way to blank a field). A missing
+      "value" or an empty string "" is rejected, so nothing is blanked by accident.
   {"sheet": "R011", "line_item": 0,
    "values": {"description": "...", "amount_excl_vat": 1.0, "vat": 0.2, "total": 1.2},
    "note": "optional"}
+      a null in "values" clears that line-item cell; "" is rejected the same way
   {"sheet": "R022", "non_expense": true, "note": "required"}
   {"sheet": "R005", "resolved": true, "note": "optional"}
       clears the red tab and the generator's review warning once the audit
@@ -738,11 +743,65 @@ def cmd_textcheck(args) -> int:
     return 1 if out["findings"] else 0
 
 
+def _is_blank_str(value) -> bool:
+    return isinstance(value, str) and not value.strip()
+
+
+def _validate_fixes(fixes: list, field_rows: dict) -> None:
+    """Reject ambiguous entries before anything is written. JSON null is the one
+    way to clear a cell; a missing "value" or an empty string is an error, so a
+    half-written entry can never blank a field by accident."""
+    if not isinstance(fixes, list):
+        raise ValueError("fixes.json must be a JSON list")
+    for fix in fixes:
+        if not isinstance(fix, dict) or "sheet" not in fix:
+            raise ValueError(f"Fix entry needs a sheet: {fix}")
+        if fix.get("non_expense") or fix.get("resolved"):
+            continue
+        if "field" in fix:
+            if fix["field"] not in field_rows:
+                raise ValueError(f"Unknown field {fix['field']!r}: {fix}")
+            if "value" not in fix:
+                raise ValueError(f'Field fix has no "value" (use null to clear): {fix}')
+            if _is_blank_str(fix["value"]):
+                raise ValueError(f'Empty-string value - use null to clear: {fix}')
+        elif "line_item" in fix:
+            values = fix.get("values")
+            if not isinstance(values, dict) or not values:
+                raise ValueError(f'Line-item fix needs a non-empty "values" object: {fix}')
+            for key, value in values.items():
+                if _is_blank_str(value):
+                    raise ValueError(f'Empty-string {key!r} - use null to clear: {fix}')
+        else:
+            raise ValueError(f"Unrecognized fix entry: {fix}")
+
+
+def _fix_cells(fix: dict, config, field_rows: dict) -> list:
+    """(row, column, expected value) for every cell a field/line-item fix writes."""
+    if fix.get("non_expense") or fix.get("resolved"):
+        return []
+    if "field" in fix:
+        return [(field_rows[fix["field"]], config.header_value_column, fix["value"])]
+    if "line_item" in fix:
+        row = config.line_items_start_row + fix["line_item"]
+        return [(row, config.get_line_item_column(k), v) for k, v in fix["values"].items()]
+    return []
+
+
+def _field_rows(config) -> dict:
+    return {field: config.header_start_row + i
+            for i, (_, field) in enumerate(config.get_header_fields())}
+
+
 def cmd_apply_fixes(args) -> int:
     fixes = json.loads(Path(args.fixes).read_text(encoding="utf-8"))
     config = get_excel_config()
-    field_rows = {field: config.header_start_row + i
-                  for i, (_, field) in enumerate(config.get_header_fields())}
+    field_rows = _field_rows(config)
+    try:
+        _validate_fixes(fixes, field_rows)
+    except ValueError as e:
+        print(f"Invalid {args.fixes}: {e}", file=sys.stderr)
+        return 2
     value_col = config.header_value_column
     notes_col = value_col + 2
     note_font = Font(color=AUDIT_NOTE_COLOR, bold=True)
@@ -768,15 +827,13 @@ def cmd_apply_fixes(args) -> int:
             cell = ws.cell(row=note_row, column=notes_col)
             if str(cell.value or "").startswith(REVIEW_WARNING_PREFIX):
                 cell.value = None
-        elif "field" in fix:
-            note_row = field_rows[fix["field"]]
-            ws.cell(row=note_row, column=value_col, value=fix["value"])
-        elif "line_item" in fix:
-            row = config.line_items_start_row + fix["line_item"]
-            for key, value in fix["values"].items():
-                ws.cell(row=row, column=config.get_line_item_column(key), value=value)
         else:
-            raise ValueError(f"Unrecognized fix entry: {fix}")
+            if "field" in fix:
+                note_row = field_rows[fix["field"]]
+            # assign .value directly: ws.cell(..., value=None) leaves the old
+            # value in place, which would make a null (clear) a silent no-op
+            for row, col, value in _fix_cells(fix, config, field_rows):
+                ws.cell(row=row, column=col).value = value
         if fix.get("note") and note_row is not None:
             cell = ws.cell(row=note_row, column=notes_col, value=fix["note"])
             cell.font = note_font
@@ -791,6 +848,20 @@ def cmd_apply_fixes(args) -> int:
         return 3
     print(json.dumps({"applied": applied, "backup": str(backup)}, ensure_ascii=False))
     return 0
+
+
+def _fix_landed(actual, expected) -> bool:
+    """A cleared fix (null) matches an empty cell; numbers compare numerically."""
+    if expected is None:
+        return actual is None or _is_blank_str(actual)
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        return actual == expected
+    if isinstance(expected, (int, float)):
+        try:
+            return abs(float(actual) - expected) < 1e-9
+        except (TypeError, ValueError):
+            return False
+    return str(actual).strip() == str(expected).strip() if actual is not None else False
 
 
 def cmd_verify(args) -> int:
@@ -831,6 +902,23 @@ def cmd_verify(args) -> int:
 
     if not checked:
         problems["workbook"] = ["no R### receipt sheets found - wrong file or unreadable layout"]
+
+    fixes_path = getattr(args, "fixes", None)
+    if fixes_path:
+        fixes = json.loads(Path(fixes_path).read_text(encoding="utf-8"))
+        field_rows = _field_rows(config)
+        for fix in fixes:
+            if fix.get("sheet") not in wb.sheetnames:
+                problems.setdefault(str(fix.get("sheet")), []).append("fix targets a missing sheet")
+                continue
+            ws = wb[fix["sheet"]]
+            for row, col, expected in _fix_cells(fix, config, field_rows):
+                actual = ws.cell(row=row, column=col).value
+                if not _fix_landed(actual, expected):
+                    problems.setdefault(fix["sheet"], []).append(
+                        f"fix not applied at row {row} col {col}: "
+                        f"expected {'(empty)' if expected is None else expected!r}, "
+                        f"found {actual!r}")
 
     print(json.dumps(problems, ensure_ascii=False, indent=1))
     return 1 if problems else 0
@@ -882,6 +970,9 @@ def main() -> int:
 
     p = sub.add_parser("verify", help="post-fix integrity check")
     p.add_argument("xlsx", type=Path)
+    p.add_argument("--fixes", type=Path,
+                   help="also check that every field/line-item fix in this fixes.json "
+                        "landed (a null fix must have left the cell empty)")
     p.set_defaults(func=cmd_verify)
 
     p = sub.add_parser("recurring",

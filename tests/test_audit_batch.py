@@ -308,6 +308,85 @@ def test_apply_fixes_resolved_without_note_drops_only_the_warning(batch, tmp_pat
     assert wb["R002"].sheet_properties.tabColor is None
 
 
+def _header_cell(ws, field):
+    from shared.excel_config import get_excel_config
+    config = get_excel_config()
+    fields = [f for _, f in config.get_header_fields()]
+    return ws.cell(row=config.header_start_row + fields.index(field),
+                   column=config.header_value_column)
+
+
+def test_apply_fixes_null_clears_field_and_verify_accepts_it(batch, tmp_path):
+    import argparse
+    import shutil as sh
+    import audit_batch
+    from openpyxl import load_workbook
+    from shared.excel_config import get_excel_config
+    work = tmp_path / "work.xlsx"
+    sh.copy2(batch, work)
+    fixes = [
+        {"sheet": "R001", "field": "vendor_id", "value": None, "note": "ח.פ שגוי - נמחק"},
+        {"sheet": "R001", "field": "currency", "value": None},
+        {"sheet": "R002", "line_item": 0, "values": {"description": None}},
+    ]
+    fixes_path = tmp_path / "fixes.json"
+    fixes_path.write_text(json.dumps(fixes, ensure_ascii=False), encoding="utf-8")
+    assert audit_batch.cmd_apply_fixes(argparse.Namespace(
+        xlsx=work, fixes=fixes_path, backup_dir=tmp_path / "b")) == 0
+
+    wb = load_workbook(work)
+    ws1 = wb["R001"]
+    assert _header_cell(ws1, "vendor_id").value is None
+    assert _header_cell(ws1, "currency").value is None
+    assert _header_cell(ws1, "vendor").value == "ספק בדיקה"   # untouched
+    config = get_excel_config()
+    assert ws1.cell(row=_header_cell(ws1, "vendor_id").row,
+                    column=config.header_value_column + 2).value == "ח.פ שגוי - נמחק"
+    li = wb["R002"].cell(row=config.line_items_start_row,
+                         column=config.get_line_item_column("description"))
+    assert li.value is None
+
+    report, rc = run_cli("verify", work, "--fixes", fixes_path)
+    assert rc == 0, report
+
+
+def test_verify_fixes_flags_a_clear_that_did_not_land(batch, tmp_path):
+    # vendor_id still holds its original value -> the null fix did not land
+    fixes_path = tmp_path / "fixes.json"
+    fixes_path.write_text(json.dumps([{"sheet": "R001", "field": "vendor_id", "value": None},
+                                      {"sheet": "R001", "field": "vendor", "value": "ספק בדיקה"}],
+                                     ensure_ascii=False), encoding="utf-8")
+    report, rc = run_cli("verify", batch, "--fixes", fixes_path)
+    assert rc == 1
+    assert len(report["R001"]) == 1 and "(empty)" in report["R001"][0]
+
+
+@pytest.mark.parametrize("bad", [
+    {"sheet": "R001", "field": "vendor_id"},                       # missing value
+    {"sheet": "R001", "field": "vendor_id", "value": ""},          # empty string
+    {"sheet": "R001", "field": "vendor_id", "value": "  "},
+    {"sheet": "R002", "line_item": 0, "values": {"description": ""}},
+    {"sheet": "R001", "field": "no_such_field", "value": "x"},
+])
+def test_apply_fixes_rejects_ambiguous_entries_without_writing(batch, tmp_path, capsys, bad):
+    import argparse
+    import shutil as sh
+    import audit_batch
+    from openpyxl import load_workbook
+    work = tmp_path / "work.xlsx"
+    sh.copy2(batch, work)
+    before = work.read_bytes()
+    fixes_path = tmp_path / "fixes.json"
+    # a valid fix first: the bad entry must stop the whole file, not just itself
+    fixes_path.write_text(json.dumps([{"sheet": "R001", "field": "vendor", "value": "אחר"}, bad],
+                                     ensure_ascii=False), encoding="utf-8")
+    rc = audit_batch.cmd_apply_fixes(argparse.Namespace(
+        xlsx=work, fixes=fixes_path, backup_dir=tmp_path / "b"))
+    assert rc == 2
+    assert work.read_bytes() == before
+    assert _header_cell(load_workbook(work)["R001"], "vendor_id").value == "510"
+
+
 def test_verify_catches_broken_arithmetic(batch, tmp_path):
     import shutil as sh
     work = tmp_path / "broken.xlsx"
